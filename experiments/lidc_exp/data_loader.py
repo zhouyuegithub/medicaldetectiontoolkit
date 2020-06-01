@@ -138,8 +138,11 @@ def load_dataset(cf, logger, subset_ixs=None, pp_data_path=None, pp_name=None):
         pp_data_path = target_dir
 
 
+    # cf.input_df_name = info_df.pickle in config file
+    # pid = patient id, in preprecessing.py 
     p_df = pd.read_pickle(os.path.join(pp_data_path, cf.input_df_name))
 
+    # cf.select_pretotype_subset: select n patients from dataset for prototyping. 
     if cf.select_prototype_subset is not None:
         prototype_pids = p_df.pid.tolist()[:cf.select_prototype_subset]
         p_df = p_df[p_df.pid.isin(prototype_pids)]

@@ -69,6 +69,7 @@ def pp_patient(inputs):
 
     final_rois = np.zeros_like(img_arr, dtype=np.uint8)
     mal_labels = []
+    # path_to_nrrds/patient_id/<patient_id>_<session_id>_<nodule_id>_<true_nodle_id>.nii.gz
     roi_ids = set([ii.split('.')[0].split('_')[-1] for ii in os.listdir(path) if '.nii.gz' in ii])
 
     rix = 1
