@@ -114,6 +114,9 @@ def prep_exp(dataset_path, exp_path, server_env, use_stored_settings=True, is_tr
     cf.server_env = server_env
     cf.created_fold_id_pickle = False
 
+    if not os.path.exists(cf.plot_dir):
+        os.makedirs(cf.plot_dir)
+
     return cf
 
 

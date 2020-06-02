@@ -64,10 +64,10 @@ def train(logger):
         net.train()
         train_results_list = []
 
-        print('net.train()')
+        #print('net.train()')
         for bix in range(cf.num_train_batches):
             batch = next(batch_gen['train'])
-            print('load batch !')
+            #print('load batch !')
             tic_fw = time.time()
             results_dict = net.train_forward(batch)
             tic_bw = time.time()
