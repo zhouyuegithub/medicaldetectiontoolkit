@@ -463,3 +463,16 @@ def copy_and_unpack_data(logger, pids, fold_dir, source_dir, target_dir):
     logger.info("copying and unpacking data set finsihed : {} files in target dir: {}. took {} sec".format(
         len(copied_files), target_dir, np.round(time.time() - start_time, 0)))
 
+if __name__ == "__main__":
+    # test save data
+    #all_pids_list = [str(x) for x in range(100)]
+    #print('all: ', all_pids_list)
+    #fg = dutils.fold_generator(seed=0, n_splits=5, len_data=len(all_pids_list)).get_fold_names()
+    #with open(os.path.join('./', 'fold_ids.pickle'), 'wb') as handle:
+    #    pickle.dump(fg, handle)
+
+    # test load data
+    #with open(os.path.join('./', 'fold_ids.pickle'), 'rb') as handle:
+    #    fg = pickle.load(handle)
+    #    train_idx, val_idx, test_idx, _ = fg[0]
+    #    print('train: {}, val: {}, test: {}'.format(train_idx, val_idx, test_idx))

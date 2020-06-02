@@ -20,7 +20,7 @@ import os
 
 class DefaultConfigs:
 
-    def __init__(self, model, server_env=None, dim=2):
+    def __init__(self, model, server_env=None, dim=3):
 
         #########################
         #         I/O           #
