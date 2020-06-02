@@ -64,8 +64,10 @@ def train(logger):
         net.train()
         train_results_list = []
 
+        print('net.train()')
         for bix in range(cf.num_train_batches):
             batch = next(batch_gen['train'])
+            print('load batch !')
             tic_fw = time.time()
             results_dict = net.train_forward(batch)
             tic_bw = time.time()
@@ -127,7 +129,7 @@ def test(logger):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--mode', type=str,  default='train',
+    parser.add_argument('-m', '--mode', type=str,  default='train_test',
                         help='one out of: train / test / train_test / analysis / create_exp')
     parser.add_argument('-f','--folds', nargs='+', type=int, default=1,
                         help='None runs over all folds in CV. otherwise specify list of folds.')

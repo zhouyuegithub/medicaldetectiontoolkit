@@ -39,7 +39,7 @@ class configs(DefaultConfigs):
 
 
         # one out of [2, 3]. dimension the model operates in.
-        self.dim = 2
+        self.dim = 3
 
         # one out of ['mrcnn', 'retina_net', 'retina_unet', 'detection_unet', 'ufrcnn', 'detection_unet'].
         self.model = 'mrcnn'
@@ -47,7 +47,7 @@ class configs(DefaultConfigs):
         DefaultConfigs.__init__(self, self.model, server_env, self.dim)
 
         # int [0 < dataset_size]. select n patients from dataset for prototyping. If None, all data is used.
-        self.select_prototype_subset = 20 
+        self.select_prototype_subset = 100 
 
         # path to preprocessed data.
         self.pp_name = 'abus_data'
@@ -209,9 +209,11 @@ class configs(DefaultConfigs):
         self.detection_min_confidence = self.min_det_thresh
 
         # if 'True', loss distinguishes all classes, else only foreground vs. background (class agnostic).
-        self.class_specific_seg_flag = True
+        #self.class_specific_seg_flag = True
+        self.class_specific_seg_flag = False 
         self.num_seg_classes = 3 if self.class_specific_seg_flag else 2
         self.head_classes = self.num_seg_classes
+        print('abus_config head_classes', head_classes)
 
     def add_mrcnn_configs(self):
 
@@ -228,7 +230,9 @@ class configs(DefaultConfigs):
         self.n_plot_rpn_props = 5 if self.dim == 2 else 30
 
         # number of classes for head networks: n_foreground_classes + 1 (background)
-        self.head_classes = 3
+        #self.head_classes = 3
+        self.head_classes = 2 
+        print('mrcnn head_classes: ', self.head_classes)
 
         # seg_classes hier refers to the first stage classifier (RPN)
         self.num_seg_classes = 2  # foreground vs. background
