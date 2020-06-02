@@ -48,6 +48,7 @@ def get_train_generators(cf, logger):
     splits the data into n-folds, where 1 split is used for val, 1 split for testing and the rest for training. (inner loop test set)
     If cf.hold_out_test_set is True, adds the test split to the training data.
     """
+    print('in get_train_generators')
     all_data = load_dataset(cf, logger)
     all_pids_list = np.unique([v['pid'] for (k, v) in all_data.items()])
 
@@ -120,11 +121,15 @@ def load_dataset(cf, logger, subset_ixs=None, pp_data_path=None, pp_name=None):
     """
     if pp_data_path is None:
         pp_data_path = cf.pp_data_path
+        print('pp_data_path',pp_data_path)
     if pp_name is None:
         pp_name = cf.pp_name
-    if cf.server_env:
+        print('pp_name',pp_name)
+    print('server_env',cf.server_env)
+    if cf.server_env:#False
         copy_data = True
         target_dir = os.path.join(cf.data_dest, pp_name)
+        print('target_dir',target_dir)
         if not os.path.exists(target_dir):
             cf.data_source_dir = pp_data_path
             os.makedirs(target_dir)
@@ -139,18 +144,18 @@ def load_dataset(cf, logger, subset_ixs=None, pp_data_path=None, pp_name=None):
 
 
     p_df = pd.read_pickle(os.path.join(pp_data_path, cf.input_df_name))
-
-    if cf.select_prototype_subset is not None:
+    print('select_prototype_subset',cf.select_prototype_subset)
+    if cf.select_prototype_subset is not None:#100
         prototype_pids = p_df.pid.tolist()[:cf.select_prototype_subset]
         p_df = p_df[p_df.pid.isin(prototype_pids)]
         logger.warning('WARNING: using prototyping data subset!!!')
 
-    if subset_ixs is not None:
+    if subset_ixs is not None:#None
         subset_pids = [np.unique(p_df.pid.tolist())[ix] for ix in subset_ixs]
         p_df = p_df[p_df.pid.isin(subset_pids)]
         logger.info('subset: selected {} instances from df'.format(len(p_df)))
 
-    if cf.server_env:
+    if cf.server_env:#False
         if copy_data:
             copy_and_unpack_data(logger, p_df.pid.tolist(), cf.fold_dir, cf.data_source_dir, target_dir)
 

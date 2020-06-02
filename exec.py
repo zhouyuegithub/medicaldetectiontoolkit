@@ -36,16 +36,19 @@ def train(logger):
         cf.dim, cf.fold, cf.exp_dir, cf.model))
 
     net = model.net(cf, logger).cuda()
+    print('after initial network')
     optimizer = torch.optim.Adam(net.parameters(), lr=cf.learning_rate[0], weight_decay=cf.weight_decay)
     model_selector = utils.ModelSelector(cf, logger)
     train_evaluator = Evaluator(cf, logger, mode='train')
-    val_evaluator = Evaluator(cf, logger, mode=cf.val_mode)
+    print('val_mode',cf.val_mode)
+    val_evaluator = Evaluator(cf, logger, mode=cf.val_mode)#val_sampling
 
     starting_epoch = 1
 
     # prepare monitoring
     monitor_metrics, TrainingPlot = utils.prepare_monitoring(cf)
 
+    print('resume_to_checkpoint',cf.resume_to_checkpoint)
     if cf.resume_to_checkpoint:
         starting_epoch, monitor_metrics = utils.load_checkpoint(cf.resume_to_checkpoint, net, optimizer)
         logger.info('resumed to checkpoint {} at epoch {}'.format(cf.resume_to_checkpoint, starting_epoch))
@@ -131,7 +134,7 @@ if __name__ == '__main__':
                         help='one out of: train / test / train_test / analysis / create_exp')
     parser.add_argument('-f','--folds', nargs='+', type=int, default=None,
                         help='None runs over all folds in CV. otherwise specify list of folds.')
-    parser.add_argument('--exp_dir', type=str, default='/path/to/experiment/directory',
+    parser.add_argument('--exp_dir', type=str, default='./experiments/lidc_exp/temp/',
                         help='path to experiment dir. will be created if non existent.')
     parser.add_argument('--server_env', default=False, action='store_true',
                         help='change IO settings to deploy models on a cluster.')
@@ -142,7 +145,7 @@ if __name__ == '__main__':
                              'where source code might change before the job actually runs.')
     parser.add_argument('--resume_to_checkpoint', type=str, default=None,
                         help='if resuming to checkpoint, the desired fold still needs to be parsed via --folds.')
-    parser.add_argument('--exp_source', type=str, default='experiments/toy_exp',
+    parser.add_argument('--exp_source', type=str, default='experiments/lidc_exp/',
                         help='specifies, from which source experiment to load configs and data_loader.')
     parser.add_argument('-d', '--dev', default=False, action='store_true', help="development mode: shorten everything")
 
