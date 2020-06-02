@@ -47,12 +47,13 @@ class configs(DefaultConfigs):
         DefaultConfigs.__init__(self, self.model, server_env, self.dim)
 
         # int [0 < dataset_size]. select n patients from dataset for prototyping. If None, all data is used.
-        self.select_prototype_subset = 100 
+        self.select_prototype_subset = 20 
 
         # path to preprocessed data.
-        self.pp_name = 'abus_data'
+        self.pp_name = 'npyfiles'
         self.input_df_name = 'info_df.pickle'
-        self.pp_data_path = '/data/xuyangcao/code/yuezhou/medicaldetectiontoolkit/experiments/abus_exp/{}'.format(self.pp_name)
+        #self.pp_data_path = '/data/xuyangcao/code/yuezhou/medicaldetectiontoolkit/experiments/abus_exp/{}'.format(self.pp_name)
+        self.pp_data_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/{}'.format(self.pp_name)
         self.pp_test_data_path = self.pp_data_path #change if test_data in separate folder.
 
         # settings for deployment in cloud.

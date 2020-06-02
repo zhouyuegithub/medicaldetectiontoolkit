@@ -212,12 +212,12 @@ def create_data_gen_pipeline(patient_data, cf, is_training=True):
     else:
         my_transforms.append(CenterCropTransform(crop_size=cf.patch_size[:cf.dim]))
 
-    print('transform end ---')
+    #print('transform end ---')
     my_transforms.append(ConvertSegToBoundingBoxCoordinates(cf.dim, get_rois_from_seg_flag=False, class_specific_seg_flag=cf.class_specific_seg_flag))
     all_transforms = Compose(my_transforms)
     # multithreaded_generator = SingleThreadedAugmenter(data_gen, all_transforms)
     multithreaded_generator = MultiThreadedAugmenter(data_gen, all_transforms, num_processes=cf.n_workers, seeds=range(cf.n_workers))
-    print('--- return a multithreaded generator ---')
+    #print('--- return a multithreaded generator ---')
     return multithreaded_generator
 
 
@@ -236,33 +236,33 @@ class BatchGenerator(SlimDataLoaderBase):
         self.cf = cf
         self.crop_margin = np.array(self.cf.patch_size)/8. #min distance of ROI center to edge of cropped_patch.
         self.p_fg = 0.5
-        print('batchgenerator init ---')
+        #print('batchgenerator init ---')
 
     def generate_train_batch(self):
-        print(' --- start generate train batch ---')
+        #print(' --- start generate train batch ---')
 
         batch_data, batch_segs, batch_pids, batch_targets, batch_patient_labels = [], [], [], [], []
         class_targets_list =  [v['class_target'] for (k, v) in self._data.items()]
 
-        print('head_classes: ', self.cf.head_classes)
+        #print('head_classes: ', self.cf.head_classes)
         if self.cf.head_classes > 2:
             # samples patients towards equilibrium of foreground classes on a roi-level (after randomly sampling the ratio "batch_sample_slack).
             batch_ixs = dutils.get_class_balanced_patients(
                 class_targets_list, self.batch_size, self.cf.head_classes - 1, slack_factor=self.cf.batch_sample_slack)
         else:
-            print(' --- else --- ')
-            print('len(class_targets_list): ', len(class_targets_list))
-            print('self.batch_size: ', self.batch_size)
+            #print(' --- else --- ')
+            #print('len(class_targets_list): ', len(class_targets_list))
+            #print('self.batch_size: ', self.batch_size)
             batch_ixs = np.random.choice(len(class_targets_list), self.batch_size)
 
         #print('batch_idx in generator: ', batch_ids)
         patients = list(self._data.items())
-        print('len(patients): ', len(patients))
+        #print('len(patients): ', len(patients))
 
         for b in batch_ixs:
             patient = patients[b][1]
 
-            print('patient[data]: ', patient['data'])
+            #print('patient[data]: ', patient['data'])
             data = np.transpose(np.load(patient['data'], mmap_mode='r'), axes=(1, 2, 0))[np.newaxis] # (c, y, x, z)
             seg = np.transpose(np.load(patient['seg'], mmap_mode='r'), axes=(1, 2, 0))
             batch_pids.append(patient['pid'])
