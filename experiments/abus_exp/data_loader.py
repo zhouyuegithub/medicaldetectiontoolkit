@@ -48,13 +48,11 @@ def get_train_generators(cf, logger):
     splits the data into n-folds, where 1 split is used for val, 1 split for testing and the rest for training. (inner loop test set)
     If cf.hold_out_test_set is True, adds the test split to the training data.
     """
-<<<<<<< HEAD
-    print('in get_train_generators')
-=======
     # all_data: imgs, segs, pids, fg_slices, class_targets 
->>>>>>> 61e76deb3eadd12f2454138744538fb32d6f7af6
     all_data = load_dataset(cf, logger)
     all_pids_list = np.unique([v['pid'] for (k, v) in all_data.items()])
+    #print('all_pids_list: ', all_pids_list)
+    #print('len(all_pids_list): ', len(all_pids_list))
 
     if not cf.created_fold_id_pickle:
         fg = dutils.fold_generator(seed=cf.seed, n_splits=cf.n_cv_splits, len_data=len(all_pids_list)).get_fold_names()
@@ -68,6 +66,7 @@ def get_train_generators(cf, logger):
     train_ix, val_ix, test_ix, _ = fg[cf.fold]
 
     train_pids = [all_pids_list[ix] for ix in train_ix]
+    #print('train_pids: ', train_pids)
     val_pids = [all_pids_list[ix] for ix in val_ix]
 
     if cf.hold_out_test_set:
@@ -76,6 +75,7 @@ def get_train_generators(cf, logger):
     train_data = {k: v for (k, v) in all_data.items() if any(p == v['pid'] for p in train_pids)}
     val_data = {k: v for (k, v) in all_data.items() if any(p == v['pid'] for p in val_pids)}
 
+    #print('val_ix: ', val_ix)
     logger.info("data set loaded with: {} train / {} val / {} test patients".format(len(train_ix), len(val_ix), len(test_ix)))
     batch_gen = {}
     batch_gen['train'] = create_data_gen_pipeline(train_data, cf=cf, is_training=True)
@@ -125,15 +125,11 @@ def load_dataset(cf, logger, subset_ixs=None, pp_data_path=None, pp_name=None):
     """
     if pp_data_path is None:
         pp_data_path = cf.pp_data_path
-        print('pp_data_path',pp_data_path)
     if pp_name is None:
         pp_name = cf.pp_name
-        print('pp_name',pp_name)
-    print('server_env',cf.server_env)
-    if cf.server_env:#False
+    if cf.server_env:
         copy_data = True
         target_dir = os.path.join(cf.data_dest, pp_name)
-        print('target_dir',target_dir)
         if not os.path.exists(target_dir):
             cf.data_source_dir = pp_data_path
             os.makedirs(target_dir)
@@ -149,30 +145,30 @@ def load_dataset(cf, logger, subset_ixs=None, pp_data_path=None, pp_name=None):
 
     # cf.input_df_name = info_df.pickle in config file
     # pid = patient id, in preprecessing.py 
+    #print('cf.input_df_name: ', cf.input_df_name)
+    #print('pp_data_path: ', pp_data_path)
     p_df = pd.read_pickle(os.path.join(pp_data_path, cf.input_df_name))
-<<<<<<< HEAD
-    print('select_prototype_subset',cf.select_prototype_subset)
-    if cf.select_prototype_subset is not None:#100
-=======
+    #print('---read pd_f!---')
 
     # cf.select_pretotype_subset: select n patients from dataset for prototyping. 
     if cf.select_prototype_subset is not None:
->>>>>>> 61e76deb3eadd12f2454138744538fb32d6f7af6
         prototype_pids = p_df.pid.tolist()[:cf.select_prototype_subset]
         p_df = p_df[p_df.pid.isin(prototype_pids)]
         logger.warning('WARNING: using prototyping data subset!!!')
 
-    if subset_ixs is not None:#None
+    if subset_ixs is not None:
         subset_pids = [np.unique(p_df.pid.tolist())[ix] for ix in subset_ixs]
         p_df = p_df[p_df.pid.isin(subset_pids)]
         logger.info('subset: selected {} instances from df'.format(len(p_df)))
 
-    if cf.server_env:#False
+    if cf.server_env:
         if copy_data:
             copy_and_unpack_data(logger, p_df.pid.tolist(), cf.fold_dir, cf.data_source_dir, target_dir)
 
     class_targets = p_df['class_target'].tolist()
+    #print('p_df: ', p_df)
     pids = p_df.pid.tolist()
+    #print('len(pids): ', len(pids))
     imgs = [os.path.join(pp_data_path, '{}_img.npy'.format(pid)) for pid in pids]
     segs = [os.path.join(pp_data_path,'{}_rois.npy'.format(pid)) for pid in pids]
 
@@ -216,10 +212,12 @@ def create_data_gen_pipeline(patient_data, cf, is_training=True):
     else:
         my_transforms.append(CenterCropTransform(crop_size=cf.patch_size[:cf.dim]))
 
+    print('transform end ---')
     my_transforms.append(ConvertSegToBoundingBoxCoordinates(cf.dim, get_rois_from_seg_flag=False, class_specific_seg_flag=cf.class_specific_seg_flag))
     all_transforms = Compose(my_transforms)
     # multithreaded_generator = SingleThreadedAugmenter(data_gen, all_transforms)
     multithreaded_generator = MultiThreadedAugmenter(data_gen, all_transforms, num_processes=cf.n_workers, seeds=range(cf.n_workers))
+    print('--- return a multithreaded generator ---')
     return multithreaded_generator
 
 
@@ -238,24 +236,33 @@ class BatchGenerator(SlimDataLoaderBase):
         self.cf = cf
         self.crop_margin = np.array(self.cf.patch_size)/8. #min distance of ROI center to edge of cropped_patch.
         self.p_fg = 0.5
+        print('batchgenerator init ---')
 
     def generate_train_batch(self):
+        print(' --- start generate train batch ---')
 
         batch_data, batch_segs, batch_pids, batch_targets, batch_patient_labels = [], [], [], [], []
         class_targets_list =  [v['class_target'] for (k, v) in self._data.items()]
 
+        print('head_classes: ', self.cf.head_classes)
         if self.cf.head_classes > 2:
             # samples patients towards equilibrium of foreground classes on a roi-level (after randomly sampling the ratio "batch_sample_slack).
             batch_ixs = dutils.get_class_balanced_patients(
                 class_targets_list, self.batch_size, self.cf.head_classes - 1, slack_factor=self.cf.batch_sample_slack)
         else:
+            print(' --- else --- ')
+            print('len(class_targets_list): ', len(class_targets_list))
+            print('self.batch_size: ', self.batch_size)
             batch_ixs = np.random.choice(len(class_targets_list), self.batch_size)
 
+        #print('batch_idx in generator: ', batch_ids)
         patients = list(self._data.items())
+        print('len(patients): ', len(patients))
 
         for b in batch_ixs:
             patient = patients[b][1]
 
+            print('patient[data]: ', patient['data'])
             data = np.transpose(np.load(patient['data'], mmap_mode='r'), axes=(1, 2, 0))[np.newaxis] # (c, y, x, z)
             seg = np.transpose(np.load(patient['seg'], mmap_mode='r'), axes=(1, 2, 0))
             batch_pids.append(patient['pid'])
@@ -476,3 +483,18 @@ def copy_and_unpack_data(logger, pids, fold_dir, source_dir, target_dir):
     logger.info("copying and unpacking data set finsihed : {} files in target dir: {}. took {} sec".format(
         len(copied_files), target_dir, np.round(time.time() - start_time, 0)))
 
+if __name__ == "__main__":
+    p_df = pd.read_pickle('./abus_data/info_df.pkl')
+    print('read!')
+    # test save data
+    #all_pids_list = [str(x) for x in range(100)]
+    #print('all: ', all_pids_list)
+    #fg = dutils.fold_generator(seed=0, n_splits=5, len_data=len(all_pids_list)).get_fold_names()
+    #with open(os.path.join('./', 'fold_ids.pickle'), 'wb') as handle:
+    #    pickle.dump(fg, handle)
+
+    # test load data
+    #with open(os.path.join('./', 'fold_ids.pickle'), 'rb') as handle:
+    #    fg = pickle.load(handle)
+    #    train_idx, val_idx, test_idx, _ = fg[0]
+    #    print('train: {}, val: {}, test: {}'.format(train_idx, val_idx, test_idx))
