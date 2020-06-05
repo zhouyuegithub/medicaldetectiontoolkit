@@ -132,7 +132,7 @@ class fold_generator:
             names_list.append([train_names, val_names, test_names, self.fold])
             self.new_fold()
             self.fold += 1
-
+            
         return names_list
 
 

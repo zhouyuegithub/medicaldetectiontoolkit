@@ -28,6 +28,7 @@ import pickle
 import time
 import subprocess
 import utils.dataloader_utils as dutils
+import SimpleITK as sitk
 
 # batch generator tools from https://github.com/MIC-DKFZ/batchgenerators
 from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
@@ -49,13 +50,14 @@ def get_train_generators(cf, logger):
     If cf.hold_out_test_set is True, adds the test split to the training data.
     """
     # all_data: imgs, segs, pids, fg_slices, class_targets 
-    all_data = load_dataset(cf, logger)
-    all_pids_list = np.unique([v['pid'] for (k, v) in all_data.items()])
-    #print('all_pids_list: ', all_pids_list)
+    print('in get_train_generators')
+    all_data = load_dataset(cf, logger)#return data path class slicelocation
+    all_pids_list = np.unique([v['pid'] for (k, v) in all_data.items()])#just pid
+    #print('len(all_data): ', len(all_data))
     #print('len(all_pids_list): ', len(all_pids_list))
 
-    if not cf.created_fold_id_pickle:
-        fg = dutils.fold_generator(seed=cf.seed, n_splits=cf.n_cv_splits, len_data=len(all_pids_list)).get_fold_names()
+    if not cf.created_fold_id_pickle:#default: False
+        fg = dutils.fold_generator(seed=cf.seed, n_splits=cf.n_cv_splits, len_data=len(all_pids_list)).get_fold_names()#return idx for 5 folds
         with open(os.path.join(cf.exp_dir, 'fold_ids.pickle'), 'wb') as handle:
             pickle.dump(fg, handle)
         cf.created_fold_id_pickle = True
@@ -69,23 +71,23 @@ def get_train_generators(cf, logger):
     #print('train_pids: ', train_pids)
     val_pids = [all_pids_list[ix] for ix in val_ix]
 
-    if cf.hold_out_test_set:
+    if cf.hold_out_test_set:#default: False
         train_pids += [all_pids_list[ix] for ix in test_ix]
 
     train_data = {k: v for (k, v) in all_data.items() if any(p == v['pid'] for p in train_pids)}
     val_data = {k: v for (k, v) in all_data.items() if any(p == v['pid'] for p in val_pids)}
-
+    #print('train_data',len(train_data))
+    #print('val_data',len(val_data))
     #print('val_ix: ', val_ix)
     logger.info("data set loaded with: {} train / {} val / {} test patients".format(len(train_ix), len(val_ix), len(test_ix)))
     batch_gen = {}
     batch_gen['train'] = create_data_gen_pipeline(train_data, cf=cf, is_training=True)
     batch_gen['val_sampling'] = create_data_gen_pipeline(val_data, cf=cf, is_training=False)
-    if cf.val_mode == 'val_patient':
+    if cf.val_mode == 'val_patient':#val_sampling
         batch_gen['val_patient'] = PatientBatchIterator(val_data, cf=cf)
         batch_gen['n_val'] = len(val_ix) if cf.max_val_patients is None else min(len(val_ix), cf.max_val_patients)
     else:
-        batch_gen['n_val'] = cf.num_val_batches
-
+        batch_gen['n_val'] = cf.num_val_batches#50
     return batch_gen
 
 
@@ -127,7 +129,7 @@ def load_dataset(cf, logger, subset_ixs=None, pp_data_path=None, pp_name=None):
         pp_data_path = cf.pp_data_path
     if pp_name is None:
         pp_name = cf.pp_name
-    if cf.server_env:
+    if cf.server_env:#default:False
         copy_data = True
         target_dir = os.path.join(cf.data_dest, pp_name)
         if not os.path.exists(target_dir):
@@ -149,19 +151,20 @@ def load_dataset(cf, logger, subset_ixs=None, pp_data_path=None, pp_name=None):
     #print('pp_data_path: ', pp_data_path)
     p_df = pd.read_pickle(os.path.join(pp_data_path, cf.input_df_name))
     #print('---read pd_f!---')
-
+    #print('p_df',p_df)
+    #print('select_prototype_subset',cf.select_prototype_subset)
     # cf.select_pretotype_subset: select n patients from dataset for prototyping. 
-    if cf.select_prototype_subset is not None:
+    if cf.select_prototype_subset is not None:#is None
         prototype_pids = p_df.pid.tolist()[:cf.select_prototype_subset]
         p_df = p_df[p_df.pid.isin(prototype_pids)]
         logger.warning('WARNING: using prototyping data subset!!!')
 
-    if subset_ixs is not None:
+    if subset_ixs is not None:#is None
         subset_pids = [np.unique(p_df.pid.tolist())[ix] for ix in subset_ixs]
         p_df = p_df[p_df.pid.isin(subset_pids)]
         logger.info('subset: selected {} instances from df'.format(len(p_df)))
 
-    if cf.server_env:
+    if cf.server_env:#default: False
         if copy_data:
             copy_and_unpack_data(logger, p_df.pid.tolist(), cf.fold_dir, cf.data_source_dir, target_dir)
 
@@ -175,10 +178,11 @@ def load_dataset(cf, logger, subset_ixs=None, pp_data_path=None, pp_name=None):
     data = OrderedDict()
     for ix, pid in enumerate(pids):
         # for the experiment conducted here, malignancy scores are binarized: (benign: 1-2, malignant: 3-5)
-        targets = [1 if ii >= 3 else 0 for ii in class_targets[ix]]
+        targets = [1 if ii >= 1 else 0 for ii in class_targets[ix]]
         data[pid] = {'data': imgs[ix], 'seg': segs[ix], 'pid': pid, 'class_target': targets}
         data[pid]['fg_slices'] = p_df['fg_slices'].tolist()[ix]
-
+    #print('data',len(data))
+    #print('data',data['0036_LLAT'])
     return data
 
 
@@ -192,7 +196,7 @@ def create_data_gen_pipeline(patient_data, cf, is_training=True):
     """
 
     # create instance of batch generator as first element in pipeline.
-    data_gen = BatchGenerator(patient_data, batch_size=cf.batch_size, cf=cf)
+    data_gen = BatchGenerator(patient_data, batch_size=cf.batch_size, cf=cf)#batch_size = 8
 
     # add transformations to pipeline.
     my_transforms = []
@@ -239,12 +243,11 @@ class BatchGenerator(SlimDataLoaderBase):
         #print('batchgenerator init ---')
 
     def generate_train_batch(self):
-        #print(' --- start generate train batch ---')
+        print(' --- start generate train batch ---')
 
         batch_data, batch_segs, batch_pids, batch_targets, batch_patient_labels = [], [], [], [], []
         class_targets_list =  [v['class_target'] for (k, v) in self._data.items()]
 
-        #print('head_classes: ', self.cf.head_classes)
         if self.cf.head_classes > 2:
             # samples patients towards equilibrium of foreground classes on a roi-level (after randomly sampling the ratio "batch_sample_slack).
             batch_ixs = dutils.get_class_balanced_patients(
@@ -261,8 +264,6 @@ class BatchGenerator(SlimDataLoaderBase):
 
         for b in batch_ixs:
             patient = patients[b][1]
-
-            #print('patient[data]: ', patient['data'])
             data = np.transpose(np.load(patient['data'], mmap_mode='r'), axes=(1, 2, 0))[np.newaxis] # (c, y, x, z)
             seg = np.transpose(np.load(patient['seg'], mmap_mode='r'), axes=(1, 2, 0))
             batch_pids.append(patient['pid'])
@@ -298,9 +299,11 @@ class BatchGenerator(SlimDataLoaderBase):
             crop_dims = [dim for dim, ps in enumerate(self.cf.pre_crop_size) if data.shape[dim + 1] > ps]
             if len(crop_dims) > 0:
                 fg_prob_sample = np.random.rand(1)
-                # with p_fg: sample random pixel from random ROI and shift center by random value.
+                # with p_fg(0.5): sample random pixel from random ROI and shift center by random value.
                 if fg_prob_sample < self.p_fg and np.sum(seg) > 0:
-                    seg_ixs = np.argwhere(seg == np.random.choice(np.unique(seg)[1:], 1))
+                    #_ = np.unique(seg)[1:]
+                    #print('unique seg',_)
+                    seg_ixs = np.argwhere(seg == np.random.choice(np.unique(seg)[1:], 1))#location of segmap == 1
                     roi_anchor_pixel = seg_ixs[np.random.choice(seg_ixs.shape[0], 1)][0]
                     assert seg[tuple(roi_anchor_pixel)] > 0
                     # sample the patch center coords. constrained by edges of images - pre_crop_size /2. And by
@@ -331,7 +334,14 @@ class BatchGenerator(SlimDataLoaderBase):
 
             batch_data.append(data)
             batch_segs.append(seg[np.newaxis])
-
+            #print('data',np.squeeze(data).shape)
+            #print('seg',np.squeeze(seg[np.newaxis]).shape)
+            #datasitk = sitk.GetImageFromArray(np.squeeze(data).astype(np.float))
+            #namedata = './{}_data.nii.gz'.format(patient['pid'])
+            #sitk.WriteImage(datasitk,namedata)
+            #segsitk = sitk.GetImageFromArray(np.squeeze(seg[np.newaxis]).astype(np.float))
+            #nameseg = './{}_seg.nii.gz'.format(patient['pid'])
+            #sitk.WriteImage(segsitk,nameseg)
         data = np.array(batch_data)
         seg = np.array(batch_segs).astype(np.uint8)
         class_target = np.array(batch_targets)

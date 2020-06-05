@@ -44,10 +44,9 @@ class FPN(nn.Module):
         self.n_blocks = [3, 4, {"resnet50": 6, "resnet101": 23}[cf.res_architecture], 3]
         self.block = ResBlock
         self.block_expansion = 4
-        self.operate_stride1 = operate_stride1
+        self.operate_stride1 = operate_stride1#False
         self.sixth_pooling = cf.sixth_pooling
         self.dim = conv.dim
-
         if operate_stride1:
             self.C0 = nn.Sequential(conv(cf.n_channels, start_filts, ks=3, pad=1, norm=cf.norm, relu=cf.relu),
                                     conv(start_filts, start_filts, ks=3, pad=1, norm=cf.norm, relu=cf.relu))
@@ -55,13 +54,13 @@ class FPN(nn.Module):
             self.C1 = conv(start_filts, start_filts, ks=7, stride=(2, 2, 1) if conv.dim == 3 else 2, pad=3, norm=cf.norm, relu=cf.relu)
 
         else:
-            self.C1 = conv(cf.n_channels, start_filts, ks=7, stride=(2, 2, 1) if conv.dim == 3 else 2, pad=3, norm=cf.norm, relu=cf.relu)
+            self.C1 = conv(cf.n_channels, start_filts, ks=7, stride=(2, 2, 2) if conv.dim == 3 else 2, pad=3, norm=cf.norm, relu=cf.relu)
 
         start_filts_exp = start_filts * self.block_expansion
 
         C2_layers = []
         C2_layers.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-                         if conv.dim == 2 else nn.MaxPool3d(kernel_size=3, stride=(2, 2, 1), padding=1))
+                         if conv.dim == 2 else nn.MaxPool3d(kernel_size=3, stride=(2, 2, 2), padding=1))
         C2_layers.append(self.block(start_filts, start_filts, conv=conv, stride=1, norm=cf.norm, relu=cf.relu,
                                     downsample=(start_filts, self.block_expansion, 1)))
         for i in range(1, self.n_blocks[0]):
@@ -131,6 +130,7 @@ class FPN(nn.Module):
         :param x: input image of shape (b, c, y, x, (z))
         :return: list of output feature maps per pyramid level, each with shape (b, c, y, x, (z)).
         """
+        print('in forward FPN')
         if self.operate_stride1:
             c0_out = self.C0(x)
         else:
@@ -165,17 +165,21 @@ class FPN(nn.Module):
         p5_out = self.P5_conv2(p5_pre_out)
         out_list = [p2_out, p3_out, p4_out, p5_out]
 
-        if self.sixth_pooling:
+        if self.sixth_pooling:#False
             p6_out = self.P6_conv2(p6_pre_out)
             out_list.append(p6_out)
 
-        if self.operate_stride1:
+        if self.operate_stride1:#False
             p1_pre_out = self.P1_conv1(c1_out) + self.P2_upsample(p2_pre_out)
             p0_pre_out = self.P0_conv1(c0_out) + self.P1_upsample(p1_pre_out)
             # p1_out = self.P1_conv2(p1_pre_out) # usually not needed.
             p0_out = self.P0_conv2(p0_pre_out)
             out_list = [p0_out] + out_list
-
+        #print('out_list',len(out_list))
+        #print('level 2',out_list[0].shape)
+        #print('level 3',out_list[1].shape)
+        #print('level 4',out_list[2].shape)
+        #print('level 5',out_list[3].shape)
         return out_list
 
 

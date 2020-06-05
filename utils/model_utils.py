@@ -346,6 +346,7 @@ def apply_box_deltas_3D(boxes, deltas):
     deltas: [N, 6] where each row is [dy, dx, dz, log(dh), log(dw), log(dd)]
     """
     # Convert to y, x, h, w
+    print('apply_box_deltas_3D')
     height = boxes[:, 2] - boxes[:, 0]
     width = boxes[:, 3] - boxes[:, 1]
     depth = boxes[:, 5] - boxes[:, 4]
@@ -519,9 +520,10 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
     anchor_delta_targets: [N, (dy, dx, (dz), log(dh), log(dw), (log(dd)))] Anchor bbox deltas.
     """
 
+    print('in get_anchor_maching')
     anchor_class_matches = np.zeros([anchors.shape[0]], dtype=np.int32)
     anchor_delta_targets = np.zeros((cf.rpn_train_anchors_per_image, 2*cf.dim))
-    anchor_matching_iou = cf.anchor_matching_iou
+    anchor_matching_iou = cf.anchor_matching_iou#0.7
 
     if gt_boxes is None:
         anchor_class_matches = np.full(anchor_class_matches.shape, fill_value=-1)

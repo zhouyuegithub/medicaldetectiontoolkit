@@ -134,9 +134,15 @@ class Mask(nn.Module):
     """
     def __init__(self, cf, conv):
         super(Mask, self).__init__()
+        print('initial Mask')
         self.pool_size = cf.mask_pool_size
+        print('self.pool_size',self.pool_size)
         self.pyramid_levels = cf.pyramid_levels
+        print('self.pyramid_levels',self.pyramid_levels)
         self.dim = conv.dim
+        print('cf.end_filts',cf.end_filts)
+        print('cf.norm',cf.norm)
+        print('cf.relu',cf.relu)
         self.conv1 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
         self.conv2 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
         self.conv3 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
@@ -807,7 +813,7 @@ class net(nn.Module):
 
 
     def __init__(self, cf, logger):
-
+        print('initial Mask R-CNN')
         super(net, self).__init__()
         self.cf = cf
         self.logger = logger
@@ -834,20 +840,21 @@ class net(nn.Module):
             if d / 2**3 != int(d / 2**3):
                 raise Exception("Image z dimension must be dividable by 2 at least 3 times "
                                 "to avoid fractions when downscaling and upscaling.")
-
+        print('patch size (h,w,d):({},{},{})'.format(h,w,d))
 
 
         # instanciate abstract multi dimensional conv class and backbone class.
         conv = mutils.NDConvGenerator(self.cf.dim)
-        backbone = utils.import_module('bbone', self.cf.backbone_path)
+        backbone = utils.import_module('bbone', self.cf.backbone_path)#FPN backbone
 
         # build Anchors, FPN, RPN, Classifier / Bbox-Regressor -head, Mask-head
         self.np_anchors = mutils.generate_pyramid_anchors(self.logger, self.cf)
+        print('anchors',self.np_anchors)
         self.anchors = torch.from_numpy(self.np_anchors).float().cuda()
         self.fpn = backbone.FPN(self.cf, conv)
         self.rpn = RPN(self.cf, conv)
         self.classifier = Classifier(self.cf, conv)
-        self.mask = Mask(self.cf, conv)
+        self.mask = Mask(self.cf, conv)#several conv layers
 
 
     def train_forward(self, batch, is_validation=False):

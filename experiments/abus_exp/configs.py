@@ -24,6 +24,8 @@ class configs(DefaultConfigs):
 
     def __init__(self, server_env=None):
 
+        self.gpu = '0'
+        os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
         #########################
         #    Preprocessing      #
         #########################
@@ -47,21 +49,16 @@ class configs(DefaultConfigs):
         DefaultConfigs.__init__(self, self.model, server_env, self.dim)
 
         # int [0 < dataset_size]. select n patients from dataset for prototyping. If None, all data is used.
-        self.select_prototype_subset = 20 
+        self.select_prototype_subset = None 
 
         # path to preprocessed data.
-        self.pp_name = 'npyfiles'
+        self.pp_name = 'abus_npy'
         self.input_df_name = 'info_df.pickle'
-        #self.pp_data_path = '/data/xuyangcao/code/yuezhou/medicaldetectiontoolkit/experiments/abus_exp/{}'.format(self.pp_name)
-<<<<<<< HEAD
         self.pp_data_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/{}/'.format(self.pp_name)
-=======
-        self.pp_data_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/{}'.format(self.pp_name)
->>>>>>> 3bf69f8fc72c74e7b6766a11c34348d490dfedd0
         self.pp_test_data_path = self.pp_data_path #change if test_data in separate folder.
 
         # settings for deployment in cloud.
-        if server_env:
+        if server_env:#False
             # path to preprocessed data.
             self.pp_name = 'lidc_mdt_npz'
             self.crop_name = 'pp_fg_slices_packed'
@@ -80,8 +77,8 @@ class configs(DefaultConfigs):
         # patch_size to be used for training. pre_crop_size is the patch_size before data augmentation.
         self.pre_crop_size_2D = [300, 300]
         self.patch_size_2D = [288, 288]
-        self.pre_crop_size_3D = [156, 156, 96]
-        self.patch_size_3D = [128, 128, 64]
+        self.pre_crop_size_3D = [ 96,156,156]
+        self.patch_size_3D = [64,128,128]#[128, 128, 64]
         self.patch_size = self.patch_size_2D if self.dim == 2 else self.patch_size_3D
         self.pre_crop_size = self.pre_crop_size_2D if self.dim == 2 else self.pre_crop_size_3D
 
@@ -115,7 +112,7 @@ class configs(DefaultConfigs):
         #  Schedule / Selection #
         #########################
 
-        self.num_epochs = 100
+        self.num_epochs = 100#100
         self.num_train_batches = 200 if self.dim == 2 else 200
         self.batch_size = 20 if self.dim == 2 else 8
 
@@ -218,10 +215,10 @@ class configs(DefaultConfigs):
         self.class_specific_seg_flag = False 
         self.num_seg_classes = 3 if self.class_specific_seg_flag else 2
         self.head_classes = self.num_seg_classes
-        print('abus_config head_classes', head_classes)
+        #print('abus_config head_classes', head_classes)
 
     def add_mrcnn_configs(self):
-
+        print('add_mrcnn_configs')
         # learning rate is a list with one entry per epoch.
         self.learning_rate = [1e-4] * self.num_epochs
 
@@ -235,15 +232,16 @@ class configs(DefaultConfigs):
         self.n_plot_rpn_props = 5 if self.dim == 2 else 30
 
         # number of classes for head networks: n_foreground_classes + 1 (background)
-        #self.head_classes = 3
-        self.head_classes = 2 
-        print('mrcnn head_classes: ', self.head_classes)
+        self.head_classes = 3
+        #self.head_classes = 2 
+        #print('mrcnn head_classes: ', self.head_classes)
 
         # seg_classes hier refers to the first stage classifier (RPN)
         self.num_seg_classes = 2  # foreground vs. background
 
         # feature map strides per pyramid level are inferred from architecture.
-        self.backbone_strides = {'xy': [4, 8, 16, 32], 'z': [1, 2, 4, 8]}
+        #self.backbone_strides = {'xy': [4, 8, 16, 32], 'z': [1, 2, 4, 8]}
+        self.backbone_strides = {'xy': [4, 8, 16, 32], 'z': [4 ,8 ,16 ,32]}
 
         # anchor scales are chosen according to expected object sizes in data set. Default uses only one anchor scale
         # per pyramid level. (outer list are pyramid levels (corresponding to BACKBONE_STRIDES), inner list are scales per level.)

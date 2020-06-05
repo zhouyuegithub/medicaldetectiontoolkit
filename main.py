@@ -25,9 +25,10 @@ import utils.exp_utils as utils
 from evaluator import Evaluator
 from predictor import Predictor
 from plotting import plot_batch_prediction
+from tensorboardX import SummaryWriter
 
 
-def train(logger):
+def train(logger,writer):
     """
     perform the training routine for a given fold. saves plots and selected parameters to the experiment dir
     specified in the configs.
@@ -36,23 +37,28 @@ def train(logger):
         cf.dim, cf.fold, cf.exp_dir, cf.model))
 
     net = model.net(cf, logger).cuda()
+    print('finish initial network')
     optimizer = torch.optim.Adam(net.parameters(), lr=cf.learning_rate[0], weight_decay=cf.weight_decay)
+    print('finish initial optimizer')
     model_selector = utils.ModelSelector(cf, logger)
     train_evaluator = Evaluator(cf, logger, mode='train')
-    val_evaluator = Evaluator(cf, logger, mode=cf.val_mode)
+    val_evaluator = Evaluator(cf, logger, mode=cf.val_mode)#val_sampling
 
     starting_epoch = 1
 
     # prepare monitoring
     monitor_metrics, TrainingPlot = utils.prepare_monitoring(cf)
-
-    if cf.resume_to_checkpoint:
+    print('finish initial metrics')
+    if cf.resume_to_checkpoint:#default: False
         starting_epoch, monitor_metrics = utils.load_checkpoint(cf.resume_to_checkpoint, net, optimizer)
         logger.info('resumed to checkpoint {} at epoch {}'.format(cf.resume_to_checkpoint, starting_epoch))
 
     logger.info('loading dataset and initializing batch generators...')
     batch_gen = data_loader.get_train_generators(cf, logger)
-
+    for k in batch_gen.keys():
+        print('k in batch_gen are {}'.format(k))
+    print('finish initial data_loader')
+    num_batch = 0
     for epoch in range(starting_epoch, cf.num_epochs + 1):
 
         logger.info('starting training epoch {}'.format(epoch))
@@ -65,20 +71,26 @@ def train(logger):
         train_results_list = []
 
         #print('net.train()')
-        for bix in range(cf.num_train_batches):
+        for bix in range(cf.num_train_batches):#200
+            num_batch += 1
             batch = next(batch_gen['train'])
-            #print('load batch !')
+            print('loading patient',batch['pid'][0])
+            print('bbox',batch['bb_target'][0])#y1,x1,y2,x2,z1,z2
+            print('data',batch['data'][0].shape)
+            print('*'*50+'load batch !')
             tic_fw = time.time()
             results_dict = net.train_forward(batch)
             tic_bw = time.time()
             optimizer.zero_grad()
-            results_dict['torch_loss'].backward()
+            results_dict['torch_loss'].backward()#total loss
             optimizer.step()
             logger.info('tr. batch {0}/{1} (ep. {2}) fw {3:.3f}s / bw {4:.3f}s / total {5:.3f}s || '
                         .format(bix + 1, cf.num_train_batches, epoch, tic_bw - tic_fw,
                                 time.time() - tic_bw, time.time() - tic_fw) + results_dict['logger_string'])
             train_results_list.append([results_dict['boxes'], batch['pid']])
             monitor_metrics['train']['monitor_values'][epoch].append(results_dict['monitor_values'])
+            print('num_batch',num_batch)
+            writer.add_scalar('Train/loss',100,num_batch)
 
         _, monitor_metrics['train'] = train_evaluator.evaluate_predictions(train_results_list, monitor_metrics['train'])
         train_time = time.time() - start_time
@@ -131,9 +143,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--mode', type=str,  default='train_test',
                         help='one out of: train / test / train_test / analysis / create_exp')
-    parser.add_argument('-f','--folds', nargs='+', type=int, default=1,
+    parser.add_argument('-f','--folds', nargs='+', type=int, default=None,
                         help='None runs over all folds in CV. otherwise specify list of folds.')
-    parser.add_argument('--exp_dir', type=str, default='./experiments/abus_exp/',
+    parser.add_argument('--exp_dir', type=str, default='./experiments/abus_exp/debug/',
                         help='path to experiment dir. will be created if non existent.')
     parser.add_argument('--server_env', default=False, action='store_true',
                         help='change IO settings to deploy models on a cluster.')
@@ -152,6 +164,7 @@ if __name__ == '__main__':
     folds = args.folds
     resume_to_checkpoint = args.resume_to_checkpoint
 
+    writer = SummaryWriter(os.path.join(args.exp_dir,'tensorboard'))
     if args.mode == 'train' or args.mode == 'train_test':
 
         cf = utils.prep_exp(args.exp_source, args.exp_dir, args.server_env, args.use_stored_settings)
@@ -163,19 +176,20 @@ if __name__ == '__main__':
             cf.max_test_patients = 1
 
         cf.data_dest = args.data_dest
+        ### import model and dataloader
         model = utils.import_module('model', cf.model_path)
         data_loader = utils.import_module('dl', os.path.join(args.exp_source, 'data_loader.py'))
         if folds is None:
             folds = range(cf.n_cv_splits)
 
         for fold in folds:
-            cf.fold_dir = os.path.join(cf.exp_dir, 'fold_{}'.format(fold))
+            cf.fold_dir = os.path.join(cf.exp_dir, 'fold_{}'.format(fold))#path to save results
             cf.fold = fold
-            cf.resume_to_checkpoint = resume_to_checkpoint
+            cf.resume_to_checkpoint = resume_to_checkpoint#default:None
             if not os.path.exists(cf.fold_dir):
                 os.mkdir(cf.fold_dir)
-            logger = utils.get_logger(cf.fold_dir)
-            train(logger)
+            logger = utils.get_logger(cf.fold_dir)#loginfo for this fold
+            train(logger,writer)
             cf.resume_to_checkpoint = None
             if args.mode == 'train_test':
                 test(logger)

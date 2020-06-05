@@ -163,8 +163,8 @@ class TrainingPlot_2Panel():
 
 
     def __init__(self, cf):
-
         self.file_name = cf.plot_dir + '/monitor_{}'.format(cf.fold)
+        print('file_name monitor',self.file_name)
         self.exp_name = cf.fold_dir
         self.do_validation = cf.do_validation
         self.separate_values_dict = cf.assign_values_to_extra_figure
