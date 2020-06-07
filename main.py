@@ -28,18 +28,20 @@ from plotting import plot_batch_prediction
 from tensorboardX import SummaryWriter
 
 
-def train(logger,writer):
+def train(logger):
     """
     perform the training routine for a given fold. saves plots and selected parameters to the experiment dir
     specified in the configs.
     """
     logger.info('performing training in {}D over fold {} on experiment {} with model {}'.format(
         cf.dim, cf.fold, cf.exp_dir, cf.model))
+    
+    writer = SummaryWriter(os.path.join(cf.exp_dir,'tensorboard'))
 
     net = model.net(cf, logger).cuda()
     print('finish initial network')
     optimizer = torch.optim.Adam(net.parameters(), lr=cf.learning_rate[0], weight_decay=cf.weight_decay)
-    print('finish initial optimizer')
+    #print('finish initial optimizer')
     model_selector = utils.ModelSelector(cf, logger)
     train_evaluator = Evaluator(cf, logger, mode='train')
     val_evaluator = Evaluator(cf, logger, mode=cf.val_mode)#val_sampling
@@ -48,16 +50,16 @@ def train(logger,writer):
 
     # prepare monitoring
     monitor_metrics, TrainingPlot = utils.prepare_monitoring(cf)
-    print('finish initial metrics')
+    #print('finish initial metrics')
     if cf.resume_to_checkpoint:#default: False
         starting_epoch, monitor_metrics = utils.load_checkpoint(cf.resume_to_checkpoint, net, optimizer)
         logger.info('resumed to checkpoint {} at epoch {}'.format(cf.resume_to_checkpoint, starting_epoch))
 
     logger.info('loading dataset and initializing batch generators...')
     batch_gen = data_loader.get_train_generators(cf, logger)
-    for k in batch_gen.keys():
-        print('k in batch_gen are {}'.format(k))
     print('finish initial data_loader')
+    #for k in batch_gen.keys():
+    #    print('k in batch_gen are {}'.format(k))
     num_batch = 0
     for epoch in range(starting_epoch, cf.num_epochs + 1):
 
@@ -68,16 +70,18 @@ def train(logger,writer):
         start_time = time.time()
 
         net.train()
-        train_results_list = []
+        train_results_list = []#this batch
 
         #print('net.train()')
         for bix in range(cf.num_train_batches):#200
             num_batch += 1
             batch = next(batch_gen['train'])
-            print('loading patient',batch['pid'][0])
-            print('bbox',batch['bb_target'][0])#y1,x1,y2,x2,z1,z2
-            print('data',batch['data'][0].shape)
             print('*'*50+'load batch !')
+            print('loading patient',batch['pid'])
+            #print('bbox',batch['bb_target'][0])#y1,x1,y2,x2,z1,z2
+            #print('data',batch['data'][0].shape)
+            #for k in batch.items():
+            #    print('k',k)
             tic_fw = time.time()
             results_dict = net.train_forward(batch)
             tic_bw = time.time()
@@ -89,8 +93,14 @@ def train(logger,writer):
                                 time.time() - tic_bw, time.time() - tic_fw) + results_dict['logger_string'])
             train_results_list.append([results_dict['boxes'], batch['pid']])
             monitor_metrics['train']['monitor_values'][epoch].append(results_dict['monitor_values'])
-            print('num_batch',num_batch)
-            writer.add_scalar('Train/loss',100,num_batch)
+            #print('num_batch',num_batch)
+            #results_dict['monitor_values'] = {'loss': loss.item(), 'mrcnn_class_loss': mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(), 'mrcnn_mask_loss':mrcnn_mask_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item()}
+            writer.add_scalar('Train/total_loss',results_dict['torch_loss'].item(),num_batch)
+            writer.add_scalar('Train/rpn_class_loss',results_dict['monitor_losses']['rpn_class_loss'],num_batch)
+            writer.add_scalar('Train/rpn_bbox_loss',results_dict['monitor_losses']['rpn_bbox_loss'],num_batch)
+            writer.add_scalar('Train/mrcnn_class_loss',results_dict['monitor_losses']['mrcnn_class_loss'],num_batch)
+            writer.add_scalar('Train/mrcnn_bbox_loss',results_dict['monitor_losses']['mrcnn_bbox_loss'],num_batch)
+            writer.add_scalar('Train/mrcnn_mask_loss',results_dict['monitor_losses']['mrcnn_mask_loss'],num_batch)
 
         _, monitor_metrics['train'] = train_evaluator.evaluate_predictions(train_results_list, monitor_metrics['train'])
         train_time = time.time() - start_time
@@ -101,7 +111,7 @@ def train(logger,writer):
             if cf.do_validation:
                 val_results_list = []
                 val_predictor = Predictor(cf, net, logger, mode='val')
-                for _ in range(batch_gen['n_val']):
+                for _ in range(batch_gen['n_val']):#50
                     batch = next(batch_gen[cf.val_mode])
                     if cf.val_mode == 'val_patient':
                         results_dict = val_predictor.predict_patient(batch)
@@ -122,6 +132,7 @@ def train(logger,writer):
             results_dict = net.train_forward(batch, is_validation=True)
             logger.info('plotting predictions from validation sampling.')
             plot_batch_prediction(batch, results_dict, cf)
+    writer.close()
 
 
 def test(logger):
@@ -130,6 +141,7 @@ def test(logger):
     """
     logger.info('starting testing model of fold {} in exp {}'.format(cf.fold, cf.exp_dir))
     net = model.net(cf, logger).cuda()
+    print('initial net for testing')
     test_predictor = Predictor(cf, net, logger, mode='test')
     test_evaluator = Evaluator(cf, logger, mode='test')
     batch_gen = data_loader.get_test_generator(cf, logger)
@@ -164,7 +176,6 @@ if __name__ == '__main__':
     folds = args.folds
     resume_to_checkpoint = args.resume_to_checkpoint
 
-    writer = SummaryWriter(os.path.join(args.exp_dir,'tensorboard'))
     if args.mode == 'train' or args.mode == 'train_test':
 
         cf = utils.prep_exp(args.exp_source, args.exp_dir, args.server_env, args.use_stored_settings)
@@ -189,7 +200,8 @@ if __name__ == '__main__':
             if not os.path.exists(cf.fold_dir):
                 os.mkdir(cf.fold_dir)
             logger = utils.get_logger(cf.fold_dir)#loginfo for this fold
-            train(logger,writer)
+            train(logger)
+            print('*'*100+'finish train all epoches')
             cf.resume_to_checkpoint = None
             if args.mode == 'train_test':
                 test(logger)

@@ -143,7 +143,7 @@ class ModelSelector:
 
     def __init__(self, cf, logger):
         self.cf = cf
-        self.saved_epochs = [-1] * cf.save_n_models
+        self.saved_epochs = [-1] * cf.save_n_models#5
         self.logger = logger
 
     def run_model_selection(self, net, optimizer, monitor_metrics, epoch):
@@ -216,12 +216,12 @@ def prepare_monitoring(cf):
     metrics['train'] = OrderedDict()
     metrics['val'] = OrderedDict()
     metric_classes = []
-    print('in prepare_monitoring')
-    print('report_score_level',cf.report_score_level)#'patients, roi'
-    if 'rois' in cf.report_score_level:
-        metric_classes.extend([v for k, v in cf.class_dict.items()])
+    #print('in prepare_monitoring')
+    if 'rois' in cf.report_score_level:#['patients,rois']
+        metric_classes.extend([v for k, v in cf.class_dict.items()])#{'1':benign,'2':malignant}
     if 'patient' in cf.report_score_level:
         metric_classes.extend(['patient'])
+    #print('metric_classes',metric_classes)
     for cl in metric_classes:#benign malignant patient
         metrics['train'][cl + '_ap'] = [None]
         metrics['val'][cl + '_ap'] = [None]
@@ -231,7 +231,6 @@ def prepare_monitoring(cf):
 
     metrics['train']['monitor_values'] = [[] for _ in range(cf.num_epochs + 1)]
     metrics['val']['monitor_values'] = [[] for _ in range(cf.num_epochs + 1)]
-    print('metrics',metrics)
 
     # generate isntance of monitor plot class.
     TrainingPlot = plotting.TrainingPlot_2Panel(cf)

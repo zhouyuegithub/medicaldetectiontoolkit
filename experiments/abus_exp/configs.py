@@ -77,14 +77,14 @@ class configs(DefaultConfigs):
         # patch_size to be used for training. pre_crop_size is the patch_size before data augmentation.
         self.pre_crop_size_2D = [300, 300]
         self.patch_size_2D = [288, 288]
-        self.pre_crop_size_3D = [ 96,156,156]
+        self.pre_crop_size_3D = [ 72,144,144]
         self.patch_size_3D = [64,128,128]#[128, 128, 64]
         self.patch_size = self.patch_size_2D if self.dim == 2 else self.patch_size_3D
         self.pre_crop_size = self.pre_crop_size_2D if self.dim == 2 else self.pre_crop_size_3D
 
         # ratio of free sampled batch elements before class balancing is triggered
         # (>0 to include "empty"/background patches.)
-        self.batch_sample_slack = 0.2
+        self.batch_sample_slack = 0.5#0.2
 
         # set 2D network to operate in 3D images.
         self.merge_2D_to_3D_preds = True
@@ -112,8 +112,8 @@ class configs(DefaultConfigs):
         #  Schedule / Selection #
         #########################
 
-        self.num_epochs = 100#100
-        self.num_train_batches = 200 if self.dim == 2 else 200
+        self.num_epochs = 1#100
+        self.num_train_batches = 200 if self.dim == 2 else 2#200
         self.batch_size = 20 if self.dim == 2 else 8
 
         self.do_validation = True
@@ -218,7 +218,7 @@ class configs(DefaultConfigs):
         #print('abus_config head_classes', head_classes)
 
     def add_mrcnn_configs(self):
-        print('add_mrcnn_configs')
+        #print('add_mrcnn_configs')
         # learning rate is a list with one entry per epoch.
         self.learning_rate = [1e-4] * self.num_epochs
 

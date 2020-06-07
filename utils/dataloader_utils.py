@@ -30,6 +30,7 @@ def get_class_balanced_patients(class_targets, batch_size, num_classes, slack_fa
     :param slack_factor:
     :return: batch_ixs: list of indices referring to a subset in class_targets-list, sampled to build one batch.
     '''
+    #print('get_class_balanced_patients')
     batch_ixs = []
     class_count = {k: 0 for k in range(num_classes)}
     weakest_class = 0
@@ -51,7 +52,6 @@ def get_class_balanced_patients(class_targets, batch_size, num_classes, slack_fa
             class_count[c] += class_targets[cand].count(c)
         weakest_class = np.argmin(([class_count[c] for c in range(num_classes)]))
         batch_ixs.append(cand)
-
     return batch_ixs
 
 
@@ -122,7 +122,6 @@ class fold_generator:
         names_list = []
         rgen = np.random.RandomState(self.myseed)
         cv_names = np.arange(self.len_data)
-
         rgen.shuffle(cv_names)
         self.l = len(cv_names)
         self.init_indices()
@@ -130,6 +129,7 @@ class fold_generator:
         for split in range(self.n_splits):
             train_names, val_names, test_names = cv_names[self.tr_ix], cv_names[self.val_ix], cv_names[self.te_ix]
             names_list.append([train_names, val_names, test_names, self.fold])
+            #print('names_list',names_list[-1][1])
             self.new_fold()
             self.fold += 1
             
@@ -206,6 +206,10 @@ def pad_nd_image(image, new_shape=None, mode="edge", kwargs=None, return_slicer=
 
     if new_shape is not None:
         old_shape = np.array(image.shape[-len(new_shape):])
+        #if len(old_shape) == 3:
+        #    image = image[np.newaxis,:,:,:]
+        #    old_shape = np.array(image.shape[-len(new_shape):])
+        print('old_shape',old_shape)
     else:
         assert shape_must_be_divisible_by is not None
         assert isinstance(shape_must_be_divisible_by, (list, tuple, np.ndarray))
@@ -213,7 +217,8 @@ def pad_nd_image(image, new_shape=None, mode="edge", kwargs=None, return_slicer=
         old_shape = new_shape
 
     num_axes_nopad = len(image.shape) - len(new_shape)
-
+    print('len(new_shape)',len(new_shape))
+    print('new_shape',new_shape)
     new_shape = [max(new_shape[i], old_shape[i]) for i in range(len(new_shape))]
 
     if not isinstance(new_shape, np.ndarray):

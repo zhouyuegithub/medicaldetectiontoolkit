@@ -130,7 +130,7 @@ class FPN(nn.Module):
         :param x: input image of shape (b, c, y, x, (z))
         :return: list of output feature maps per pyramid level, each with shape (b, c, y, x, (z)).
         """
-        print('in forward FPN')
+        #print('in forward FPN')
         if self.operate_stride1:
             c0_out = self.C0(x)
         else:

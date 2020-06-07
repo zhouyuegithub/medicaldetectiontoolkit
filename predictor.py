@@ -131,6 +131,7 @@ class Predictor:
                             (if not merged to 3D), and a dummy batch dimension of 1 for 3D predictions.
                  - 'seg_preds': not implemented yet. todo for evaluation of instance/semantic segmentation.
         """
+        print('in predict_test_set')
         dict_of_patient_results = OrderedDict()
 
         # get paths of all parameter sets to be loaded for temporal ensembling. (or just one for no temp. ensembling).

@@ -346,7 +346,7 @@ def apply_box_deltas_3D(boxes, deltas):
     deltas: [N, 6] where each row is [dy, dx, dz, log(dh), log(dw), log(dd)]
     """
     # Convert to y, x, h, w
-    print('apply_box_deltas_3D')
+    #print('apply_box_deltas_3D')
     height = boxes[:, 2] - boxes[:, 0]
     width = boxes[:, 3] - boxes[:, 1]
     depth = boxes[:, 5] - boxes[:, 4]
@@ -405,6 +405,7 @@ def clip_boxes_numpy(boxes, window):
     boxes: [N, 4] each col is y1, x1, y2, x2 / [N, 6] in 3D.
     window: iamge shape (y, x, (z))
     """
+    #print('before boxes',boxes)
     if boxes.shape[1] == 4:
         boxes = np.concatenate(
             (np.clip(boxes[:, 0], 0, window[0])[:, None],
@@ -422,7 +423,7 @@ def clip_boxes_numpy(boxes, window):
              np.clip(boxes[:, 4], 0, window[2])[:, None],
              np.clip(boxes[:, 5], 0, window[2])[:, None]), 1
         )
-
+    #print('after boxes',boxes)
     return boxes
 
 
@@ -520,9 +521,9 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
     anchor_delta_targets: [N, (dy, dx, (dz), log(dh), log(dw), (log(dd)))] Anchor bbox deltas.
     """
 
-    print('in get_anchor_maching')
-    anchor_class_matches = np.zeros([anchors.shape[0]], dtype=np.int32)
-    anchor_delta_targets = np.zeros((cf.rpn_train_anchors_per_image, 2*cf.dim))
+    #print('in get_anchor_maching')
+    anchor_class_matches = np.zeros([anchors.shape[0]], dtype=np.int32)#num_anchors
+    anchor_delta_targets = np.zeros((cf.rpn_train_anchors_per_image, 2*cf.dim))#(6,6)
     anchor_matching_iou = cf.anchor_matching_iou#0.7
 
     if gt_boxes is None:
@@ -532,9 +533,10 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
     # for mrcnn: anchor matching is done for RPN loss, so positive labels are all 1 (foreground)
     if gt_class_ids is None:
         gt_class_ids = np.array([1] * len(gt_boxes))
-
+    #print('gt_class_ids',gt_class_ids)
     # Compute overlaps [num_anchors, num_gt_boxes]
     overlaps = compute_overlaps(anchors, gt_boxes)
+    #print('overlaps',overlaps.shape)
 
     # Match anchors to GT Boxes
     # If an anchor overlaps a GT box with IoU >= anchor_matching_iou then it's positive.
@@ -548,6 +550,8 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
     # matched to them. Skip boxes in crowd areas.
     anchor_iou_argmax = np.argmax(overlaps, axis=1)
     anchor_iou_max = overlaps[np.arange(overlaps.shape[0]), anchor_iou_argmax]
+    #print('anchor_iou_argmax',anchor_iou_argmax.shape)
+    #print('anchor_iou_max',anchor_iou_max.shape)
     if anchors.shape[1] == 4:
         anchor_class_matches[(anchor_iou_max < 0.1)] = -1
     elif anchors.shape[1] == 6:
@@ -557,7 +561,10 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
 
     # 2. Set an anchor for each GT box (regardless of IoU value).
     gt_iou_argmax = np.argmax(overlaps, axis=0)
+    #print('gt_iou_argmax',gt_iou_argmax.shape)
     for ix, ii in enumerate(gt_iou_argmax):
+        #print('ii',ii)
+        #print('gt',gt_class_ids[ix])
         anchor_class_matches[ii] = gt_class_ids[ix]
 
     # 3. Set anchors with high overlap as positive.
@@ -575,9 +582,14 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
     # Leave all negative proposals negative now and sample from them in online hard example mining.
     # For positive anchors, compute shift and scale needed to transform them to match the corresponding GT boxes.
     ids = np.where(anchor_class_matches > 0)[0]
+    #ids_ = np.where(anchor_class_matches>0)
+    #print('ids_',ids_)
+    #print('ids',ids)
     ix = 0  # index into anchor_delta_targets
     for i, a in zip(ids, anchors[ids]):
         # closest gt box (it might have IoU < anchor_matching_iou)
+        #print('a',a)
+        #print('ix',ix)
         gt = gt_boxes[anchor_iou_argmax[i]]
 
         # convert coordinates to center plus width/height.
@@ -617,7 +629,8 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
         # normalize.
         anchor_delta_targets[ix] /= cf.rpn_bbox_std_dev
         ix += 1
-
+    #print('anchor_delta_targets',anchor_delta_targets.shape)
+    #print('anchor_class_matches',anchor_class_matches.shape)
     return anchor_class_matches, anchor_delta_targets
 
 
