@@ -209,7 +209,7 @@ def pad_nd_image(image, new_shape=None, mode="edge", kwargs=None, return_slicer=
         #if len(old_shape) == 3:
         #    image = image[np.newaxis,:,:,:]
         #    old_shape = np.array(image.shape[-len(new_shape):])
-        print('old_shape',old_shape)
+        #print('old_shape',old_shape)
     else:
         assert shape_must_be_divisible_by is not None
         assert isinstance(shape_must_be_divisible_by, (list, tuple, np.ndarray))
@@ -217,8 +217,8 @@ def pad_nd_image(image, new_shape=None, mode="edge", kwargs=None, return_slicer=
         old_shape = new_shape
 
     num_axes_nopad = len(image.shape) - len(new_shape)
-    print('len(new_shape)',len(new_shape))
-    print('new_shape',new_shape)
+    #print('len(new_shape)',len(new_shape))
+    #print('new_shape',new_shape)
     new_shape = [max(new_shape[i], old_shape[i]) for i in range(len(new_shape))]
 
     if not isinstance(new_shape, np.ndarray):

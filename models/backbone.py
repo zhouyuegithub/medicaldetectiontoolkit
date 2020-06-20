@@ -40,12 +40,12 @@ class FPN(nn.Module):
         super(FPN, self).__init__()
 
         self.start_filts = cf.start_filts
-        start_filts = self.start_filts
-        self.n_blocks = [3, 4, {"resnet50": 6, "resnet101": 23}[cf.res_architecture], 3]
+        start_filts = self.start_filts#18
+        self.n_blocks = [3, 4, {"resnet50": 6, "resnet101": 23}[cf.res_architecture], 3]#[3,4,6,3]
         self.block = ResBlock
         self.block_expansion = 4
         self.operate_stride1 = operate_stride1#False
-        self.sixth_pooling = cf.sixth_pooling
+        self.sixth_pooling = cf.sixth_pooling#False
         self.dim = conv.dim
         if operate_stride1:
             self.C0 = nn.Sequential(conv(cf.n_channels, start_filts, ks=3, pad=1, norm=cf.norm, relu=cf.relu),
@@ -54,36 +54,36 @@ class FPN(nn.Module):
             self.C1 = conv(start_filts, start_filts, ks=7, stride=(2, 2, 1) if conv.dim == 3 else 2, pad=3, norm=cf.norm, relu=cf.relu)
 
         else:
-            self.C1 = conv(cf.n_channels, start_filts, ks=7, stride=(2, 2, 2) if conv.dim == 3 else 2, pad=3, norm=cf.norm, relu=cf.relu)
+            self.C1 = conv(cf.n_channels, start_filts, ks=7, stride=(2, 2, 2) if conv.dim == 3 else 2, pad=3, norm=cf.norm, relu=cf.relu)#1,18,None,'relu'
 
-        start_filts_exp = start_filts * self.block_expansion
+        start_filts_exp = start_filts * self.block_expansion#18*4=72
 
         C2_layers = []
         C2_layers.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
                          if conv.dim == 2 else nn.MaxPool3d(kernel_size=3, stride=(2, 2, 2), padding=1))
         C2_layers.append(self.block(start_filts, start_filts, conv=conv, stride=1, norm=cf.norm, relu=cf.relu,
-                                    downsample=(start_filts, self.block_expansion, 1)))
+                                    downsample=(start_filts, self.block_expansion, 1)))#18,18,(18,4,1)
         for i in range(1, self.n_blocks[0]):
             C2_layers.append(self.block(start_filts_exp, start_filts, conv=conv, norm=cf.norm, relu=cf.relu))
         self.C2 = nn.Sequential(*C2_layers)
 
         C3_layers = []
         C3_layers.append(self.block(start_filts_exp, start_filts * 2, conv=conv, stride=2, norm=cf.norm, relu=cf.relu,
-                                    downsample=(start_filts_exp, 2, 2)))
+                                    downsample=(start_filts_exp, 2, 2)))#72,36,(72,2,2)
         for i in range(1, self.n_blocks[1]):
             C3_layers.append(self.block(start_filts_exp * 2, start_filts * 2, conv=conv, norm=cf.norm, relu=cf.relu))
         self.C3 = nn.Sequential(*C3_layers)
 
         C4_layers = []
         C4_layers.append(self.block(
-            start_filts_exp * 2, start_filts * 4, conv=conv, stride=2, norm=cf.norm, relu=cf.relu, downsample=(start_filts_exp * 2, 2, 2)))
+            start_filts_exp * 2, start_filts * 4, conv=conv, stride=2, norm=cf.norm, relu=cf.relu, downsample=(start_filts_exp * 2, 2, 2)))#144，72，(144,2,2)
         for i in range(1, self.n_blocks[2]):
             C4_layers.append(self.block(start_filts_exp * 4, start_filts * 4, conv=conv, norm=cf.norm, relu=cf.relu))
         self.C4 = nn.Sequential(*C4_layers)
 
         C5_layers = []
         C5_layers.append(self.block(
-            start_filts_exp * 4, start_filts * 8, conv=conv, stride=2, norm=cf.norm, relu=cf.relu, downsample=(start_filts_exp * 4, 2, 2)))
+            start_filts_exp * 4, start_filts * 8, conv=conv, stride=2, norm=cf.norm, relu=cf.relu, downsample=(start_filts_exp * 4, 2, 2)))#288,144,(288,2,2)
         for i in range(1, self.n_blocks[3]):
             C5_layers.append(self.block(start_filts_exp * 8, start_filts * 8, conv=conv, norm=cf.norm, relu=cf.relu))
         self.C5 = nn.Sequential(*C5_layers)
@@ -100,17 +100,19 @@ class FPN(nn.Module):
             self.P1_upsample = Interpolate(scale_factor=2, mode='bilinear')
             self.P2_upsample = Interpolate(scale_factor=2, mode='bilinear')
         else:
-            self.P1_upsample = Interpolate(scale_factor=(2, 2, 1), mode='trilinear')
-            self.P2_upsample = Interpolate(scale_factor=(2, 2, 1), mode='trilinear')
+            #self.P1_upsample = Interpolate(scale_factor=(2, 2, 1), mode='trilinear')
+            #self.P2_upsample = Interpolate(scale_factor=(2, 2, 1), mode='trilinear')
+            self.P1_upsample = Interpolate(scale_factor=(2, 2, 2), mode='trilinear')
+            self.P2_upsample = Interpolate(scale_factor=(2, 2, 2), mode='trilinear')
 
-        self.out_channels = cf.end_filts
-        self.P5_conv1 = conv(start_filts*32 + cf.n_latent_dims, self.out_channels, ks=1, stride=1, relu=None) #
-        self.P4_conv1 = conv(start_filts*16, self.out_channels, ks=1, stride=1, relu=None)
-        self.P3_conv1 = conv(start_filts*8, self.out_channels, ks=1, stride=1, relu=None)
-        self.P2_conv1 = conv(start_filts*4, self.out_channels, ks=1, stride=1, relu=None)
-        self.P1_conv1 = conv(start_filts, self.out_channels, ks=1, stride=1, relu=None)
+        self.out_channels = cf.end_filts#36
+        self.P5_conv1 = conv(start_filts*32 + cf.n_latent_dims, self.out_channels, ks=1, stride=1, relu=None)#576
+        self.P4_conv1 = conv(start_filts*16, self.out_channels, ks=1, stride=1, relu=None)#288
+        self.P3_conv1 = conv(start_filts*8, self.out_channels, ks=1, stride=1, relu=None)#144
+        self.P2_conv1 = conv(start_filts*4, self.out_channels, ks=1, stride=1, relu=None)#72
+        self.P1_conv1 = conv(start_filts, self.out_channels, ks=1, stride=1, relu=None)#18
 
-        if operate_stride1:
+        if operate_stride1:#false
             self.P0_conv1 = conv(start_filts, self.out_channels, ks=1, stride=1, relu=None)
             self.P0_conv2 = conv(self.out_channels, self.out_channels, ks=3, stride=1, pad=1, relu=None)
 
@@ -120,7 +122,7 @@ class FPN(nn.Module):
         self.P4_conv2 = conv(self.out_channels, self.out_channels, ks=3, stride=1, pad=1, relu=None)
         self.P5_conv2 = conv(self.out_channels, self.out_channels, ks=3, stride=1, pad=1, relu=None)
 
-        if self.sixth_pooling:
+        if self.sixth_pooling:#false
             self.P6_conv1 = conv(start_filts * 64, self.out_channels, ks=1, stride=1, relu=None)
             self.P6_conv2 = conv(self.out_channels, self.out_channels, ks=3, stride=1, pad=1, relu=None)
 
@@ -141,6 +143,11 @@ class FPN(nn.Module):
         c3_out = self.C3(c2_out)
         c4_out = self.C4(c3_out)
         c5_out = self.C5(c4_out)
+        #print('c1_out',c1_out.shape)
+        #print('c2_out',c2_out.shape)
+        #print('c1_out',c3_out.shape)
+        #print('c1_out',c4_out.shape)
+        #print('c5_out',c5_out.shape)
         if self.sixth_pooling:
             c6_out = self.C6(c5_out)
             p6_pre_out = self.P6_conv1(c6_out)
@@ -151,6 +158,10 @@ class FPN(nn.Module):
         p4_pre_out = self.P4_conv1(c4_out) + F.interpolate(p5_pre_out, scale_factor=2)
         p3_pre_out = self.P3_conv1(c3_out) + F.interpolate(p4_pre_out, scale_factor=2)
         p2_pre_out = self.P2_conv1(c2_out) + F.interpolate(p3_pre_out, scale_factor=2)
+        #print('p5_pre_out',p5_pre_out.shape)
+        #print('p4_pre_out',p4_pre_out.shape)
+        #print('p3_pre_out',p3_pre_out.shape)
+        #print('p2_pre_out',p2_pre_out.shape)
 
         # plot feature map shapes for debugging.
         # for ii in [c0_out, c1_out, c2_out, c3_out, c4_out, c5_out, c6_out]:

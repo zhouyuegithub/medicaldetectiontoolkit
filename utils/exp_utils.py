@@ -39,7 +39,6 @@ def get_logger(exp_dir):
     logger.setLevel(logging.DEBUG)
     log_file = exp_dir + '/exec.log'
     hdlr = logging.FileHandler(log_file)
-    print('Logging to {}'.format(log_file))
     logger.addHandler(hdlr)
     logger.addHandler(ColorHandler())
     logger.propagate = False
@@ -133,6 +132,18 @@ def import_module(name, path):
     spec.loader.exec_module(module)
     return module
 
+def save_models(cf,net,optimizer,epoch,recall):
+    state = {
+        'epoch': epoch,
+        'state_dict': net.state_dict(),
+        'optimizer': optimizer.state_dict(),
+    }
+
+    # save checkpoint of current epoch.
+    save_dir = os.path.join(cf.fold_dir, 'checkpoint'.format(epoch))
+    if not os.path.exists(save_dir):
+        os.mkdir(save_dir)
+    torch.save(state, os.path.join(save_dir, 'params_{}_{}.pth'.format(epoch,recall)))
 
 
 class ModelSelector:
@@ -148,14 +159,20 @@ class ModelSelector:
 
     def run_model_selection(self, net, optimizer, monitor_metrics, epoch):
 
+        #print('in run_model_selection')
         # take the mean over all selection criteria in each epoch
         non_nan_scores = np.mean(np.array([[0 if ii is None else ii for ii in monitor_metrics['val'][sc]] for sc in self.cf.model_selection_criteria]), 0)
+        #print('non_nan_scores',non_nan_scores)
+        #for sc in self.cf.model_selection_criteria:
+        #    for ii in monitor_metrics['val'][sc]:
+        #        print('ii',ii)
         epochs_scores = [ii for ii in non_nan_scores[1:]]
+        #print('epochs_scores',epochs_scores)
         # ranking of epochs according to model_selection_criterion
         epoch_ranking = np.argsort(epochs_scores)[::-1] + 1 #epochs start at 1
         # if set in configs, epochs < min_save_thresh are discarded from saving process.
         epoch_ranking = epoch_ranking[epoch_ranking >= self.cf.min_save_thresh]
-
+        #print('epoch_ranking',epoch_ranking)
         # check if current epoch is among the top-k epchs.
         if epoch in epoch_ranking[:self.cf.save_n_models]:
 
@@ -197,13 +214,14 @@ class ModelSelector:
 
 def load_checkpoint(checkpoint_path, net, optimizer):
 
-    checkpoint_params = torch.load(os.path.join(checkpoint_path, 'params.pth'))
+    checkpoint_params = torch.load(os.path.join(checkpoint_path, 'params_1_0.0.pth'))
     net.load_state_dict(checkpoint_params['state_dict'])
     optimizer.load_state_dict(checkpoint_params['optimizer'])
-    with open(os.path.join(checkpoint_path, 'monitor_metrics.pickle'), 'rb') as handle:
-        monitor_metrics = pickle.load(handle)
+    #with open(os.path.join(checkpoint_path, 'monitor_metrics.pickle'), 'rb') as handle:
+    #    monitor_metrics = pickle.load(handle)
     starting_epoch = checkpoint_params['epoch'] + 1
-    return starting_epoch, monitor_metrics
+    #return starting_epoch, monitor_metrics
+    return starting_epoch
 
 
 

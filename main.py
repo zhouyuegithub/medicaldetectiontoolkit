@@ -22,11 +22,11 @@ import time
 import torch
 
 import utils.exp_utils as utils
-from evaluator import Evaluator
+from evaluator import Evaluator 
 from predictor import Predictor
-from plotting import plot_batch_prediction
+from plotting import plot_batch_prediction, save_monitor_valuse
 from tensorboardX import SummaryWriter
-
+from utils.exp_utils import save_models
 
 def train(logger):
     """
@@ -39,7 +39,7 @@ def train(logger):
     writer = SummaryWriter(os.path.join(cf.exp_dir,'tensorboard'))
 
     net = model.net(cf, logger).cuda()
-    print('finish initial network')
+    #print('finish initial network')
     optimizer = torch.optim.Adam(net.parameters(), lr=cf.learning_rate[0], weight_decay=cf.weight_decay)
     #print('finish initial optimizer')
     model_selector = utils.ModelSelector(cf, logger)
@@ -52,15 +52,16 @@ def train(logger):
     monitor_metrics, TrainingPlot = utils.prepare_monitoring(cf)
     #print('finish initial metrics')
     if cf.resume_to_checkpoint:#default: False
-        starting_epoch, monitor_metrics = utils.load_checkpoint(cf.resume_to_checkpoint, net, optimizer)
+        starting_epoch = utils.load_checkpoint(cf.resume_to_checkpoint, net, optimizer)
         logger.info('resumed to checkpoint {} at epoch {}'.format(cf.resume_to_checkpoint, starting_epoch))
 
     logger.info('loading dataset and initializing batch generators...')
     batch_gen = data_loader.get_train_generators(cf, logger)
-    print('finish initial data_loader')
     #for k in batch_gen.keys():
     #    print('k in batch_gen are {}'.format(k))
-    num_batch = 0
+    num_batch = 0#for show loss
+    num_val = 0
+    best_train_recall,best_val_recall = 0,0
     for epoch in range(starting_epoch, cf.num_epochs + 1):
 
         logger.info('starting training epoch {}'.format(epoch))
@@ -76,23 +77,32 @@ def train(logger):
         for bix in range(cf.num_train_batches):#200
             num_batch += 1
             batch = next(batch_gen['train'])
-            print('*'*50+'load batch !')
-            print('loading patient',batch['pid'])
+            #print('*'*50+'load batch !')
+            #print('loading patient',batch['pid'])
             #print('bbox',batch['bb_target'][0])#y1,x1,y2,x2,z1,z2
             #print('data',batch['data'][0].shape)
-            #for k in batch.items():
+            #for (k,v) in batch.items():
             #    print('k',k)
             tic_fw = time.time()
             results_dict = net.train_forward(batch)
             tic_bw = time.time()
+            #for (k,v) in results_dict.items():
+            #    print('k in results_dict',k)
+            #b = results_dict['boxes']
+            #print('len b', len(b))
+            #print('len b[0]',len(b[0]))
+            #for (k,v) in b[0][0].items():
+            #    print('k in boxes',k)
             optimizer.zero_grad()
             results_dict['torch_loss'].backward()#total loss
             optimizer.step()
+            if (num_batch) % cf.show_train_images == 0:
+                fig = plot_batch_prediction(batch, results_dict, cf,'train')
+                writer.add_figure('/Train/results',fig,num_batch)
+                fig.clear()
             logger.info('tr. batch {0}/{1} (ep. {2}) fw {3:.3f}s / bw {4:.3f}s / total {5:.3f}s || '
                         .format(bix + 1, cf.num_train_batches, epoch, tic_bw - tic_fw,
                                 time.time() - tic_bw, time.time() - tic_fw) + results_dict['logger_string'])
-            train_results_list.append([results_dict['boxes'], batch['pid']])
-            monitor_metrics['train']['monitor_values'][epoch].append(results_dict['monitor_values'])
             #print('num_batch',num_batch)
             #results_dict['monitor_values'] = {'loss': loss.item(), 'mrcnn_class_loss': mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(), 'mrcnn_mask_loss':mrcnn_mask_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item()}
             writer.add_scalar('Train/total_loss',results_dict['torch_loss'].item(),num_batch)
@@ -102,7 +112,21 @@ def train(logger):
             writer.add_scalar('Train/mrcnn_bbox_loss',results_dict['monitor_losses']['mrcnn_bbox_loss'],num_batch)
             writer.add_scalar('Train/mrcnn_mask_loss',results_dict['monitor_losses']['mrcnn_mask_loss'],num_batch)
 
-        _, monitor_metrics['train'] = train_evaluator.evaluate_predictions(train_results_list, monitor_metrics['train'])
+            train_results_list.append([results_dict['boxes'], batch['pid']])
+            monitor_metrics['train']['monitor_values'][epoch].append(results_dict['monitor_values'])
+
+        print('*'*100 + 'finish batch in epoch {}'.format(epoch))
+        #test_df, monitor_metrics['train'] = train_evaluator.evaluate_predictions(train_results_list, monitor_metrics['train'])
+        monitor_metrics['train'],count_train = train_evaluator.evaluate_predictions(train_results_list, monitor_metrics['train'])
+        #return (tp,fp,fn)
+        #print('count_train',count_train)
+        precision = count_train[0]/ (count_train[0]+count_train[1]+0.01)
+        recall = count_train[0]/ (count_train[0]+count_train[2]+0.01)
+        #if recall > best_train_recall and epoch > 1:
+        #    save_monitor_valuse(cf,test_df,epoch,flag = 'train')
+        #    best_train_recall = recall
+        writer.add_scalar('Train/train_precision',precision,epoch)
+        writer.add_scalar('Train/train_recall',recall,epoch)
         train_time = time.time() - start_time
 
         logger.info('starting validation in mode {}.'.format(cf.val_mode))
@@ -112,26 +136,40 @@ def train(logger):
                 val_results_list = []
                 val_predictor = Predictor(cf, net, logger, mode='val')
                 for _ in range(batch_gen['n_val']):#50
+                    num_val += 1
                     batch = next(batch_gen[cf.val_mode])
                     if cf.val_mode == 'val_patient':
                         results_dict = val_predictor.predict_patient(batch)
                     elif cf.val_mode == 'val_sampling':
                         results_dict = net.train_forward(batch, is_validation=True)
+                        if (num_val) % cf.show_val_images == 0:
+                            fig = plot_batch_prediction(batch, results_dict, cf,'val')
+                            writer.add_figure('Val/results',fig,num_val)
+                            fig.clear()
+
                     val_results_list.append([results_dict['boxes'], batch['pid']])
                     monitor_metrics['val']['monitor_values'][epoch].append(results_dict['monitor_values'])
 
-                _, monitor_metrics['val'] = val_evaluator.evaluate_predictions(val_results_list, monitor_metrics['val'])
+                monitor_metrics['val'],count_val = val_evaluator.evaluate_predictions(val_results_list, monitor_metrics['val'])
+                precision = count_val[0]/ (count_val[0]+count_val[1]+0.01)
+                recall = count_val[0]/ (count_val[0]+count_val[2]+0.01)
+                #if recall > best_val_recall and epoch > 1:
+                #    save_monitor_valuse(cf,test_df,epoch,flag = 'val')
+                #    best_val_recall = recall
+                writer.add_scalar('Val/val_precision',precision,epoch)
+                writer.add_scalar('Val/val_recall',recall,epoch)
                 model_selector.run_model_selection(net, optimizer, monitor_metrics, epoch)
+                #save_models(cf,net,optimizer,epoch,recall)
 
             # update monitoring and prediction plots
-            TrainingPlot.update_and_save(monitor_metrics, epoch)
+            #TrainingPlot.update_and_save(monitor_metrics, epoch)
             epoch_time = time.time() - start_time
             logger.info('trained epoch {}: took {} sec. ({} train / {} val)'.format(
                 epoch, epoch_time, train_time, epoch_time-train_time))
-            batch = next(batch_gen['val_sampling'])
-            results_dict = net.train_forward(batch, is_validation=True)
-            logger.info('plotting predictions from validation sampling.')
-            plot_batch_prediction(batch, results_dict, cf)
+            #batch = next(batch_gen['val_sampling'])
+            #results_dict = net.train_forward(batch, is_validation=True)
+            #logger.info('plotting predictions from validation sampling.')
+            #fig = plot_batch_prediction(batch, results_dict, cf)
     writer.close()
 
 
@@ -146,7 +184,9 @@ def test(logger):
     test_evaluator = Evaluator(cf, logger, mode='test')
     batch_gen = data_loader.get_test_generator(cf, logger)
     test_results_list = test_predictor.predict_test_set(batch_gen, return_results=True)
-    test_evaluator.evaluate_predictions(test_results_list)
+    print('test_results_list',test_results_list)
+    count = test_evaluator.evaluate_predictions(test_results_list,flag = 'test')
+    print('tp {}, fp {}, fn {}'.format(count[0],count[1],count[2]))
     test_evaluator.score_test_df()
 
 
@@ -155,9 +195,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--mode', type=str,  default='train_test',
                         help='one out of: train / test / train_test / analysis / create_exp')
-    parser.add_argument('-f','--folds', nargs='+', type=int, default=None,
+    parser.add_argument('-f','--folds', nargs='+', type=int, default=[1],
                         help='None runs over all folds in CV. otherwise specify list of folds.')
-    parser.add_argument('--exp_dir', type=str, default='./experiments/abus_exp/debug/',
+    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/0619_frcnn/',
                         help='path to experiment dir. will be created if non existent.')
     parser.add_argument('--server_env', default=False, action='store_true',
                         help='change IO settings to deploy models on a cluster.')
@@ -178,7 +218,7 @@ if __name__ == '__main__':
 
     if args.mode == 'train' or args.mode == 'train_test':
 
-        cf = utils.prep_exp(args.exp_source, args.exp_dir, args.server_env, args.use_stored_settings)
+        cf = utils.prep_exp(args.exp_source, args.exp_dir, args.server_env, args.use_stored_settings)#False,False
         if args.dev: # default: false
             folds = [0,1]
             cf.batch_size, cf.num_epochs, cf.min_save_thresh, cf.save_n_models = 3 if cf.dim==2 else 1, 1, 0, 1
@@ -187,6 +227,7 @@ if __name__ == '__main__':
             cf.max_test_patients = 1
 
         cf.data_dest = args.data_dest
+        cf.resume_to_checkpoint = resume_to_checkpoint#default:None
         ### import model and dataloader
         model = utils.import_module('model', cf.model_path)
         data_loader = utils.import_module('dl', os.path.join(args.exp_source, 'data_loader.py'))
@@ -196,7 +237,6 @@ if __name__ == '__main__':
         for fold in folds:
             cf.fold_dir = os.path.join(cf.exp_dir, 'fold_{}'.format(fold))#path to save results
             cf.fold = fold
-            cf.resume_to_checkpoint = resume_to_checkpoint#default:None
             if not os.path.exists(cf.fold_dir):
                 os.mkdir(cf.fold_dir)
             logger = utils.get_logger(cf.fold_dir)#loginfo for this fold
@@ -218,6 +258,7 @@ if __name__ == '__main__':
             cf.test_n_epochs =  1; cf.max_test_patients = 1
 
         cf.data_dest = args.data_dest
+        print('model_path',cf.model_path)
         model = utils.import_module('model', cf.model_path)
         data_loader = utils.import_module('dl', os.path.join(args.exp_source, 'data_loader.py'))
         if folds is None:

@@ -33,7 +33,7 @@ def aggregate_meta_info(exp_dir):
         with open(f, 'rb') as handle:
             df.loc[len(df)] = pickle.load(handle)
 
-    df.to_pickle(os.path.join(exp_dir, 'info_df.pickle'))
+    df.to_pickle(os.path.join(exp_dir, 'info_df_new.pickle'))
     print ("aggregated meta info to df with length", len(df))
 
 if __name__ == "__main__":
@@ -59,10 +59,10 @@ if __name__ == "__main__":
         label_array[label_array != 0] = 1
         fg_slices = [ii for ii in np.unique(np.argwhere(label_array != 0)[:, 0])]
 
-        np.save(os.path.join(save_path, '{}_rois.npy'.format(pid)), label_array)
-        np.save(os.path.join(save_path, '{}_img.npy'.format(pid)), img_array)
-        with open(os.path.join(save_path, 'meta_info_{}.pickle'.format(pid)), 'wb') as handle:
-            meta_info_dict = {'pid': pid, 'class_target': [int(this_class)], 'spacing': img.GetSpacing(), 'fg_slices': fg_slices}
+        #np.save(os.path.join(save_path, '{}_rois.npy'.format(pid)), label_array)
+        #np.save(os.path.join(save_path, '{}_img.npy'.format(pid)), img_array)
+        with open(os.path.join(save_path, 'meta_info_{}_new.pickle'.format(pid)), 'wb') as handle:
+            meta_info_dict = {'pid': pid, 'class_target': [int(this_class)+1], 'spacing': img.GetSpacing(), 'fg_slices': fg_slices}
             pickle.dump(meta_info_dict, handle)
 
     aggregate_meta_info(save_path)

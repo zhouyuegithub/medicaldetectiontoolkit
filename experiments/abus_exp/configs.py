@@ -24,7 +24,7 @@ class configs(DefaultConfigs):
 
     def __init__(self, server_env=None):
 
-        self.gpu = '0'
+        self.gpu = '3'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
         #########################
         #    Preprocessing      #
@@ -44,7 +44,7 @@ class configs(DefaultConfigs):
         self.dim = 3
 
         # one out of ['mrcnn', 'retina_net', 'retina_unet', 'detection_unet', 'ufrcnn', 'detection_unet'].
-        self.model = 'mrcnn'
+        self.model = 'ufrcnn'
 
         DefaultConfigs.__init__(self, self.model, server_env, self.dim)
 
@@ -53,10 +53,9 @@ class configs(DefaultConfigs):
 
         # path to preprocessed data.
         self.pp_name = 'abus_npy'
-        self.input_df_name = 'info_df.pickle'
+        self.input_df_name = 'info_df_new.pickle'
         self.pp_data_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/{}/'.format(self.pp_name)
         self.pp_test_data_path = self.pp_data_path #change if test_data in separate folder.
-
         # settings for deployment in cloud.
         if server_env:#False
             # path to preprocessed data.
@@ -112,8 +111,8 @@ class configs(DefaultConfigs):
         #  Schedule / Selection #
         #########################
 
-        self.num_epochs = 1#100
-        self.num_train_batches = 200 if self.dim == 2 else 2#200
+        self.num_epochs = 200 
+        self.num_train_batches = 200 if self.dim == 2 else 200 
         self.batch_size = 20 if self.dim == 2 else 8
 
         self.do_validation = True
@@ -123,7 +122,7 @@ class configs(DefaultConfigs):
         if self.val_mode == 'val_patient':
             self.max_val_patients = 50  # if 'None' iterates over entire val_set once.
         if self.val_mode == 'val_sampling':
-            self.num_val_batches = 50
+            self.num_val_batches = 20 
 
         #########################
         #   Testing / Plotting  #
@@ -132,6 +131,14 @@ class configs(DefaultConfigs):
         # set the top-n-epochs to be saved for temporal averaging in testing.
         self.save_n_models = 5
         self.test_n_epochs = 5
+
+        # show image
+        self.show_train_images = 10 
+        self.show_val_images = 10
+
+        #select detected box score
+        self.source_th = 0.1
+
         # set a minimum epoch number for saving in case of instabilities in the first phase of training.
         self.min_save_thresh = 0 if self.dim == 2 else 0
 
@@ -313,7 +320,7 @@ class configs(DefaultConfigs):
                                              )])
 
         if self.model == 'ufrcnn':
-            self.operate_stride1 = True
+            self.operate_stride1 = False#True
             self.class_specific_seg_flag = True
             self.num_seg_classes = 3 if self.class_specific_seg_flag else 2
             self.frcnn_mode = True

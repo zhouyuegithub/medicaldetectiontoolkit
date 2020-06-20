@@ -69,11 +69,12 @@ class Predictor:
         if self.mode == 'test':
             try:
                 self.epoch_ranking = np.load(os.path.join(self.cf.fold_dir, 'epoch_ranking.npy'))[:cf.test_n_epochs]
+                #print('epoch_ranking',self.epoch_ranking)
             except:
                 raise RuntimeError('no epoch ranking file in fold directory. '
                                    'seems like you are trying to run testing without prior training...')
             self.n_ens = cf.test_n_epochs
-            if self.cf.test_aug:
+            if self.cf.test_aug:#default True
                 self.n_ens *= 4
 
 
@@ -131,7 +132,7 @@ class Predictor:
                             (if not merged to 3D), and a dummy batch dimension of 1 for 3D predictions.
                  - 'seg_preds': not implemented yet. todo for evaluation of instance/semantic segmentation.
         """
-        print('in predict_test_set')
+        #print('in predict_test_set')
         dict_of_patient_results = OrderedDict()
 
         # get paths of all parameter sets to be loaded for temporal ensembling. (or just one for no temp. ensembling).
@@ -144,21 +145,25 @@ class Predictor:
             self.net.load_state_dict(torch.load(weight_path))
             self.net.eval()
             self.rank_ix = str(rank_ix)  # get string of current rank for unique patch ids.
-
             with torch.no_grad():
                 for _ in range(batch_gen['n_test']):
 
                     batch = next(batch_gen['test'])
-
                     # store batch info in patient entry of results dict.
-                    if rank_ix == 0:
+                    #if rank_ix == 0:
+                    if batch['pid'] not in dict_of_patient_results.keys():
                         dict_of_patient_results[batch['pid']] = {}
                         dict_of_patient_results[batch['pid']]['results_list'] = []
                         dict_of_patient_results[batch['pid']]['patient_bb_target'] = batch['patient_bb_target']
                         dict_of_patient_results[batch['pid']]['patient_roi_labels'] = batch['patient_roi_labels']
+                        #print('pid',batch['pid'])
+                        #print('gt box', batch['patient_bb_target'])
+                        #print('gt cls',batch['patient_roi_labels'])
+                        #print('data',batch['data'].shape)# 18,1,64,128,128
 
                     # call prediction pipeline and store results in dict.
-                    results_dict = self.predict_patient(batch)
+                    results_dict = self.predict_patient(batch)#pred box and seg of this batch
+                    #print('results_dict',results_dict['boxes'])
                     dict_of_patient_results[batch['pid']]['results_list'].append(results_dict['boxes'])
 
 
@@ -290,7 +295,7 @@ class Predictor:
                  - 'seg_preds': pixel-wise predictions. (b, 1, y, x, (z))
                  - monitor_values (only in validation mode)
         """
-        patch_crops = batch['patch_crop_coords'] if self.patched_patient else None
+        patch_crops = batch['patch_crop_coords'] if self.patched_patient else None#crop locations
         results_list = [self.spatial_tiling_forward(batch, patch_crops)]
         org_img_shape = batch['original_img_shape']
 
@@ -389,7 +394,7 @@ class Predictor:
             patches_dict = self.batch_tiling_forward(batch)
 
             results_dict = {'boxes': [[] for _ in range(batch['original_img_shape'][0])]}
-
+            #print('shape',batch['original_img_shape'])#1,1,76,290,318
             # instanciate segemntation output array. Will contain averages over patch predictions.
             out_seg_preds = np.zeros(batch['original_img_shape'], dtype=np.float16)[:, 0][:, None]
             # counts patch instances per pixel-position.
@@ -398,6 +403,7 @@ class Predictor:
             #unmold segmentation outputs. loop over patches.
             for pix, pc in enumerate(patch_crops):
                 if self.cf.dim == 3:
+                    #print('pc',pc)
                     out_seg_preds[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += patches_dict['seg_preds'][pix][None]
                     patch_overlap_map[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += 1
                 else:
@@ -489,10 +495,18 @@ class Predictor:
             for chunk_ixs in split_ixs[1:]:  # first split is elements before 0, so empty
                 b = {k: batch[k][chunk_ixs] for k in batch.keys()
                      if (isinstance(batch[k], np.ndarray) and batch[k].shape[0] == img.shape[0])}
+                #print('b',b.keys())
+                #for k in b.keys():
+                #    if k == 'bb_target':
+                #        print('bbtarget',b[k])
                 if self.mode == 'val':
                     chunk_dicts += [self.net.train_forward(b, is_validation=True)]
                 else:
                     chunk_dicts += [self.net.test_forward(b, return_masks=self.cf.return_masks_in_test)]
+                    #for k in chunk_dicts[-1].keys():
+                        #print('k',len(chunk_dicts[-1]['boxes']))
+                        #print('box',len(chunk_dicts[-1]['boxes'][0]))
+                    #    print('box',(chunk_dicts[-1]['boxes'][0][0]['box_coords']))
 
 
             results_dict = {}
@@ -507,7 +521,6 @@ class Predictor:
                      for k in chunk_dicts[0]['monitor_values'].keys()}
                 # discard returned ground-truth boxes (also training info boxes).
                 results_dict['boxes'] = [[box for box in b if box['box_type'] == 'det'] for b in results_dict['boxes']]
-
         return results_dict
 
 

@@ -288,25 +288,31 @@ def generate_pyramid_anchors(logger, cf):
     """
     scales = cf.rpn_anchor_scales
     ratios = cf.rpn_anchor_ratios
-    feature_shapes = cf.backbone_shapes
-    anchor_stride = cf.rpn_anchor_stride
-    pyramid_levels = cf.pyramid_levels
-    feature_strides = cf.backbone_strides
+    feature_shapes = cf.backbone_shapes#FPN feature shape
+    anchor_stride = cf.rpn_anchor_stride#1
+    pyramid_levels = cf.pyramid_levels#[0,1,2,3]
+    feature_strides = cf.backbone_strides#[4,8,16,32]
 
     anchors = []
     logger.info("feature map shapes: {}".format(feature_shapes))
     logger.info("anchor scales: {}".format(scales))
+    logger.info("anchor ratios: {}".format(ratios))
 
-    expected_anchors = [np.prod(feature_shapes[ii]) * len(ratios) * len(scales['xy'][ii]) for ii in pyramid_levels]
+    expected_anchors = [np.prod(feature_shapes[ii]) * len(ratios) * len(scales['xy'][ii]) for ii in pyramid_levels]#total anchor number
 
-    for lix, level in enumerate(pyramid_levels):
+    for lix, level in enumerate(pyramid_levels):#create anchors in each level
         if len(feature_shapes[level]) == 2:
             anchors.append(generate_anchors(scales['xy'][level], ratios, feature_shapes[level],
                                             feature_strides['xy'][level], anchor_stride))
         else:
             anchors.append(generate_anchors_3D(scales['xy'][level], scales['z'][level], ratios, feature_shapes[level],
                                             feature_strides['xy'][level], feature_strides['z'][level], anchor_stride))
-
+        #print('anchor',anchors[-1][0])
+        #print('anchor',anchors[-1][1])
+        #print('anchor',anchors[-1][2])
+        #print('anchor',anchors[-1][3])
+        #print('anchor',anchors[-1][4])
+        #print('anchor',anchors[-1][5])
         logger.info("level {}: built anchors {} / expected anchors {} ||| total build {} / total expected {}".format(
             level, anchors[-1].shape, expected_anchors[lix], np.concatenate(anchors).shape, np.sum(expected_anchors)))
 

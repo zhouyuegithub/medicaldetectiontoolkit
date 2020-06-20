@@ -792,7 +792,7 @@ class net(nn.Module):
         # build Anchors, FPN, RPN, Classifier / Bbox-Regressor -head, Mask-head
         self.np_anchors = mutils.generate_pyramid_anchors(self.logger, self.cf)
         self.anchors = torch.from_numpy(self.np_anchors).float().cuda()
-        self.fpn = backbone.FPN(self.cf, conv, operate_stride1=True)
+        self.fpn = backbone.FPN(self.cf, conv, operate_stride1=False)
         self.rpn = RPN(self.cf, conv)
         self.classifier = Classifier(self.cf, conv)
         self.mask = Mask(self.cf, conv)
@@ -943,7 +943,8 @@ class net(nn.Module):
         # extract features.
         fpn_outs = self.fpn(img)
         seg_logits = self.final_conv(fpn_outs[0])
-        rpn_feature_maps = [fpn_outs[i + 1] for i in self.cf.pyramid_levels]
+        #rpn_feature_maps = [fpn_outs[i + 1] for i in self.cf.pyramid_levels]
+        rpn_feature_maps = [fpn_outs[i] for i in self.cf.pyramid_levels]
         self.mrcnn_feature_maps = rpn_feature_maps
 
         # loop through pyramid layers and apply RPN.

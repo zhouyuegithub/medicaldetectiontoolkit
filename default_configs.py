@@ -49,7 +49,7 @@ class DefaultConfigs:
         self.seed = 0
 
         #number of threads for multithreaded batch generation.
-        self.n_workers = 16 if server_env else 8
+        self.n_workers = 16 if server_env else 1
 
         # if True, segmentation losses learn all categories, else only foreground vs. background.
         self.class_specific_seg_flag = False
@@ -85,7 +85,7 @@ class DefaultConfigs:
         #########################
 
         # perform mirroring at test time. (only XY. Z not done to not blow up predictions times).
-        self.test_aug = True
+        self.test_aug = False#True
 
         # if True, test data lies in a separate folder and is not part of the cross validation.
         self.hold_out_test_set = False
@@ -101,7 +101,7 @@ class DefaultConfigs:
         self.scan_det_thresh = False
 
         # plots roc-curves / prc-curves in evaluation.
-        self.plot_stat_curves = False
+        self.plot_stat_curves = True#False
 
         # evaluates average precision per image and averages over images. instead computing one ap over data set.
         self.per_patient_ap = False
