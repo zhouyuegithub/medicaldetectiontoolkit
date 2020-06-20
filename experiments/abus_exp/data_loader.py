@@ -52,10 +52,7 @@ def get_train_generators(cf, logger):
     # all_data: imgs, segs, pids, fg_slices, class_targets 
     #print('in get_train_generators')
     all_data = load_dataset(cf, logger)#return data path class slicelocation('data','seg','pid','class_target','fg_slices')
-    #for (k,v) in all_data['0111_LLAT'].items():
-    #    print('k in all_data:',k)
     all_pids_list = np.unique([v['pid'] for (k, v) in all_data.items()])#just pid
-    #print('len(all_data): ', len(all_data))
 
     if not cf.created_fold_id_pickle:#default: False
         fg = dutils.fold_generator(seed=cf.seed, n_splits=cf.n_cv_splits, len_data=len(all_pids_list)).get_fold_names()#return idx for 5 folds(0,5,170) file idx
@@ -107,8 +104,7 @@ def get_test_generator(cf, logger):
         pp_name = None
         with open(os.path.join(cf.exp_dir, 'fold_ids.pickle'), 'rb') as handle:
             fold_list = pickle.load(handle)
-        #_, _, test_ix, _ = fold_list[cf.fold]
-        test_ix, _, _, _ = fold_list[cf.fold]
+        _, _, test_ix, _ = fold_list[cf.fold]
         # warnings.warn('WARNING: using validation set for testing!!!')
 
     test_data = load_dataset(cf, logger, test_ix, pp_data_path=cf.pp_test_data_path, pp_name=pp_name)
@@ -185,7 +181,6 @@ def load_dataset(cf, logger, subset_ixs=None, pp_data_path=None, pp_name=None):
         targets = [1 if ii >= 1 else 0 for ii in class_targets[ix]]
         data[pid] = {'data': imgs[ix], 'seg': segs[ix], 'pid': pid, 'class_target': targets}
         data[pid]['fg_slices'] = p_df['fg_slices'].tolist()[ix]
-    #print('data',len(data))
     #print('data',data['0036_LLAT'])
     return data
 
@@ -221,6 +216,7 @@ def create_data_gen_pipeline(patient_data, cf, is_training=True):
         my_transforms.append(CenterCropTransform(crop_size=cf.patch_size[:cf.dim]))
 
     #print('transform end ---')
+    print('class_specific_seg_flag',cf.class_specific_seg_flag)
     my_transforms.append(ConvertSegToBoundingBoxCoordinates(cf.dim, get_rois_from_seg_flag=False, class_specific_seg_flag=cf.class_specific_seg_flag))
     all_transforms = Compose(my_transforms)
     # multithreaded_generator = SingleThreadedAugmenter(data_gen, all_transforms)
@@ -251,7 +247,8 @@ class BatchGenerator(SlimDataLoaderBase):
 
         batch_data, batch_segs, batch_pids, batch_targets, batch_patient_labels = [], [], [], [], []
         class_targets_list =  [v['class_target'] for (k, v) in self._data.items()]
-        #print('class_targets_list',len(class_targets_list))
+        #print('class_targets_list',np.array(class_targets_list))
+        #print('head_classes',self.cf.head_classes)
         if self.cf.head_classes > 2:
             # samples patients towards equilibrium of foreground classes on a roi-level (after randomly sampling the ratio "batch_sample_slack).
             batch_ixs = dutils.get_class_balanced_patients(
@@ -398,7 +395,7 @@ class PatientBatchIterator(SlimDataLoaderBase):
             #print('out_targets',out_targets)
 
             batch_3D = {'data': out_data, 'seg': out_seg, 'class_target': out_targets, 'pid': pid}
-            converter = ConvertSegToBoundingBoxCoordinates(dim=3, get_rois_from_seg_flag=False, class_specific_seg_flag=self.cf.class_specific_seg_flag)#default false
+            converter = ConvertSegToBoundingBoxCoordinates(dim=3, get_rois_from_seg_flag=False, class_specific_seg_flag=False)#default false
             #print('batch_3D',**batch_3D)
             batch_3D = converter(**batch_3D)
             batch_3D.update({'patient_bb_target': batch_3D['bb_target'],
@@ -482,8 +479,6 @@ class PatientBatchIterator(SlimDataLoaderBase):
         self.patient_ix += 1
         if self.patient_ix == len(self.dataset_pids):
             self.patient_ix = 0
-        #for k,v in out_batch.items():
-        #    print('k',k)
         #    if k == 'data':
         #        print('data',v.shape)#18,1,64,128,128
         return out_batch

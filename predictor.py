@@ -22,6 +22,7 @@ from collections import OrderedDict
 from multiprocessing import Pool
 import pickle
 import pandas as pd
+from plotting import plot_batch_prediction
 
 
 class Predictor:
@@ -120,7 +121,7 @@ class Predictor:
         return results_dict
 
 
-    def predict_test_set(self, batch_gen, return_results=True):
+    def predict_test_set(self, batch_gen,cf, return_results=True):
         """
         wrapper around test method, which loads multiple (or one) epoch parameters (temporal ensembling), loops through
         the test set and collects predictions per patient. Also flattens the results per patient and epoch
@@ -138,9 +139,9 @@ class Predictor:
         # get paths of all parameter sets to be loaded for temporal ensembling. (or just one for no temp. ensembling).
         weight_paths = [os.path.join(self.cf.fold_dir, '{}_best_checkpoint'.format(epoch), 'params.pth') for epoch in
                         self.epoch_ranking]
-
+        weight_paths = [weight_paths[0]]
         for rank_ix, weight_path in enumerate(weight_paths):
-
+            testing_epoch = self.epoch_ranking[rank_ix]
             self.logger.info(('tmp ensembling over rank_ix:{} epoch:{}'.format(rank_ix, weight_path)))
             self.net.load_state_dict(torch.load(weight_path))
             self.net.eval()
@@ -149,6 +150,11 @@ class Predictor:
                 for _ in range(batch_gen['n_test']):
 
                     batch = next(batch_gen['test'])
+                    #for k in batch.keys():
+                    #    print('k',k)
+                    for i in batch['patient_roi_labels']:
+                        if i[0] > 0:
+                            batch['patient_roi_labels'][0] = [1]
                     # store batch info in patient entry of results dict.
                     #if rank_ix == 0:
                     if batch['pid'] not in dict_of_patient_results.keys():
@@ -163,6 +169,8 @@ class Predictor:
 
                     # call prediction pipeline and store results in dict.
                     results_dict = self.predict_patient(batch)#pred box and seg of this batch
+                    #print('finish this pat')
+                    #fig = plot_batch_prediction(batch, results_dict, cf,'test')
                     #print('results_dict',results_dict['boxes'])
                     dict_of_patient_results[batch['pid']]['results_list'].append(results_dict['boxes'])
 
@@ -193,14 +201,14 @@ class Predictor:
                                                      'box_type': 'gt'})
 
             list_of_results_per_patient.append([results_dict['boxes'], pid])
-
+        
         # save out raw predictions.
-        out_string = 'raw_pred_boxes_hold_out_list' if self.cf.hold_out_test_set else 'raw_pred_boxes_list'
+        out_string = 'raw_pred_boxes_hold_out_list' if self.cf.hold_out_test_set else 'raw_pred_boxes_list'#false
         with open(os.path.join(self.cf.fold_dir, '{}.pickle'.format(out_string)), 'wb') as handle:
             pickle.dump(list_of_results_per_patient, handle)
 
-        if return_results:
-
+        if return_results:#true
+            #return list_of_results_per_patient
             # consolidate predictions.
             self.logger.info('applying wcs to test set predictions with iou = {} and n_ens = {}.'.format(
                 self.cf.wcs_iou, self.n_ens))
@@ -296,6 +304,7 @@ class Predictor:
                  - monitor_values (only in validation mode)
         """
         patch_crops = batch['patch_crop_coords'] if self.patched_patient else None#crop locations
+        #print('patch_crops',patch_crops)#locations
         results_list = [self.spatial_tiling_forward(batch, patch_crops)]
         org_img_shape = batch['original_img_shape']
 
@@ -391,7 +400,7 @@ class Predictor:
         """
         if patch_crops is not None:
 
-            patches_dict = self.batch_tiling_forward(batch)
+            patches_dict = self.batch_tiling_forward(batch)#return resultdict of this batch flatten
 
             results_dict = {'boxes': [[] for _ in range(batch['original_img_shape'][0])]}
             #print('shape',batch['original_img_shape'])#1,1,76,290,318
@@ -401,7 +410,7 @@ class Predictor:
             patch_overlap_map = np.zeros_like(out_seg_preds, dtype='uint8')
 
             #unmold segmentation outputs. loop over patches.
-            for pix, pc in enumerate(patch_crops):
+            for pix, pc in enumerate(patch_crops):#pc is location
                 if self.cf.dim == 3:
                     #print('pc',pc)
                     out_seg_preds[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += patches_dict['seg_preds'][pix][None]
@@ -415,9 +424,8 @@ class Predictor:
             results_dict['seg_preds'] = out_seg_preds
 
             # unmold box outputs. loop over patches.
-            for pix, pc in enumerate(patch_crops):
+            for pix, pc in enumerate(patch_crops):#pc is location
                 patch_boxes = patches_dict['boxes'][pix]
-
                 for box in patch_boxes:
 
                     # add unique patch id for consolidation of predictions.
@@ -495,18 +503,10 @@ class Predictor:
             for chunk_ixs in split_ixs[1:]:  # first split is elements before 0, so empty
                 b = {k: batch[k][chunk_ixs] for k in batch.keys()
                      if (isinstance(batch[k], np.ndarray) and batch[k].shape[0] == img.shape[0])}
-                #print('b',b.keys())
-                #for k in b.keys():
-                #    if k == 'bb_target':
-                #        print('bbtarget',b[k])
                 if self.mode == 'val':
                     chunk_dicts += [self.net.train_forward(b, is_validation=True)]
                 else:
                     chunk_dicts += [self.net.test_forward(b, return_masks=self.cf.return_masks_in_test)]
-                    #for k in chunk_dicts[-1].keys():
-                        #print('k',len(chunk_dicts[-1]['boxes']))
-                        #print('box',len(chunk_dicts[-1]['boxes'][0]))
-                    #    print('box',(chunk_dicts[-1]['boxes'][0][0]['box_coords']))
 
 
             results_dict = {}

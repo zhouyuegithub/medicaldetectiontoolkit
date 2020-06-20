@@ -24,7 +24,7 @@ class configs(DefaultConfigs):
 
     def __init__(self, server_env=None):
 
-        self.gpu = '3'
+        self.gpu = '2'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
         #########################
         #    Preprocessing      #
@@ -44,7 +44,7 @@ class configs(DefaultConfigs):
         self.dim = 3
 
         # one out of ['mrcnn', 'retina_net', 'retina_unet', 'detection_unet', 'ufrcnn', 'detection_unet'].
-        self.model = 'ufrcnn'
+        self.model = 'mrcnn'
 
         DefaultConfigs.__init__(self, self.model, server_env, self.dim)
 
@@ -53,7 +53,7 @@ class configs(DefaultConfigs):
 
         # path to preprocessed data.
         self.pp_name = 'abus_npy'
-        self.input_df_name = 'info_df_new.pickle'
+        self.input_df_name = 'info_df.pickle'
         self.pp_data_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/{}/'.format(self.pp_name)
         self.pp_test_data_path = self.pp_data_path #change if test_data in separate folder.
         # settings for deployment in cloud.
@@ -111,9 +111,9 @@ class configs(DefaultConfigs):
         #  Schedule / Selection #
         #########################
 
-        self.num_epochs = 200 
+        self.num_epochs = 300
         self.num_train_batches = 200 if self.dim == 2 else 200 
-        self.batch_size = 20 if self.dim == 2 else 8
+        self.batch_size = 20 if self.dim == 2 else 10 
 
         self.do_validation = True
         # decide whether to validate on entire patient volumes (like testing) or sampled patches (like training)
@@ -129,7 +129,7 @@ class configs(DefaultConfigs):
         #########################
 
         # set the top-n-epochs to be saved for temporal averaging in testing.
-        self.save_n_models = 5
+        self.save_n_models = 2
         self.test_n_epochs = 5
 
         # show image
@@ -143,11 +143,11 @@ class configs(DefaultConfigs):
         self.min_save_thresh = 0 if self.dim == 2 else 0
 
         self.report_score_level = ['patient', 'rois']  # choose list from 'patient', 'rois'
-        self.class_dict = {1: 'benign', 2: 'malignant'}  # 0 is background.
-        self.patient_class_of_interest = 2  # patient metrics are only plotted for one class.
+        self.class_dict = {1:'mass'}#{1: 'benign', 2: 'malignant'}  # 0 is background.
+        self.patient_class_of_interest = 1  # patient metrics are only plotted for one class.
         self.ap_match_ious = [0.1]  # list of ious to be evaluated for ap-scoring.
 
-        self.model_selection_criteria = ['malignant_ap', 'benign_ap'] # criteria to average over for saving epochs.
+        self.model_selection_criteria = ['val_recall']#['malignant_ap', 'benign_ap'] # criteria to average over for saving epochs.
         self.min_det_thresh = 0.1  # minimum confidence value to select predictions for evaluation.
 
         # threshold for clustering predictions together (wcs = weighted cluster scoring).
@@ -155,7 +155,7 @@ class configs(DefaultConfigs):
         # if too high, preds of the same object are separate clusters.
         self.wcs_iou = 1e-5
 
-        self.plot_prediction_histograms = True
+        self.plot_prediction_histograms = False#True
         self.plot_stat_curves = False
 
         #########################
@@ -218,11 +218,10 @@ class configs(DefaultConfigs):
         self.detection_min_confidence = self.min_det_thresh
 
         # if 'True', loss distinguishes all classes, else only foreground vs. background (class agnostic).
-        #self.class_specific_seg_flag = True
-        self.class_specific_seg_flag = False 
-        self.num_seg_classes = 3 if self.class_specific_seg_flag else 2
+        self.class_specific_seg_flag = True
+        #self.class_specific_seg_flag = False 
+        self.num_seg_classes = 1 if self.class_specific_seg_flag else 2
         self.head_classes = self.num_seg_classes
-        #print('abus_config head_classes', head_classes)
 
     def add_mrcnn_configs(self):
         #print('add_mrcnn_configs')
@@ -239,12 +238,11 @@ class configs(DefaultConfigs):
         self.n_plot_rpn_props = 5 if self.dim == 2 else 30
 
         # number of classes for head networks: n_foreground_classes + 1 (background)
-        self.head_classes = 3
-        #self.head_classes = 2 
+        self.head_classes = 2 
         #print('mrcnn head_classes: ', self.head_classes)
 
         # seg_classes hier refers to the first stage classifier (RPN)
-        self.num_seg_classes = 2  # foreground vs. background
+        self.num_seg_classes = 1  # foreground vs. background
 
         # feature map strides per pyramid level are inferred from architecture.
         #self.backbone_strides = {'xy': [4, 8, 16, 32], 'z': [1, 2, 4, 8]}

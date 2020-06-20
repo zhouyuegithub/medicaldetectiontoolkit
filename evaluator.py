@@ -36,7 +36,7 @@ class Evaluator():
         self.mode = mode
 
 
-    def evaluate_predictions(self, results_list, monitor_metrics=None,flag = ''):
+    def evaluate_predictions(self, results_list, epoch,cf, monitor_metrics=None,flag = ''):
         """
         Performs the matching of predicted boxes and ground truth boxes. Loops over list of matching IoUs and foreground classes.
         Resulting info of each prediction is stored as one line in an internal dataframe, with the keys:
@@ -54,9 +54,6 @@ class Evaluator():
         """
         # gets results_list = [[batch_instances_box_lists], [batch_instances_pids]]*n_batches
         # we want to evaluate one batch_instance (= 2D or 3D image) at a time.
-        #print('in evaluate_predictions')
-        #print('results_list',results_list[0])
-        #print('monitor_metrics',monitor_metrics['monitor_values'][1])
         df_list_preds = []
         df_list_labels = []
         df_list_class_preds = []
@@ -86,7 +83,6 @@ class Evaluator():
             TP_roi,FP_roi,FN_roi,TN_pat = 0,0,0,0
             for cl in list(self.cf.class_dict.keys()):
                 for pix, pid in enumerate(pid_list):
-
                     len_df_list_before_patient = len(df_list_pids)
                     for bix, b_boxes_list in enumerate(batch_elements_list[pix]):
 
@@ -98,9 +94,6 @@ class Evaluator():
                         b_cand_scores = np.array([box['box_score'] for box in b_boxes_list if
                                                   (box['box_type'] == 'det' and
                                                    box['box_pred_class_id'] == cl)])#detected source
-                        #print('b_tar_boxes',b_tar_boxes.shape)
-                        #print('b_cand_boxes',b_cand_boxes.shape)
-                        #print('b_cand_scores',b_cand_scores.shape)
                         # check if predictions and ground truth boxes exist and match them according to match_iou.
                         if not 0 in b_cand_boxes.shape and not 0 in b_tar_boxes.shape:#30,6 1,6 30,1
                             overlaps = mutils.compute_overlaps(b_cand_boxes, b_tar_boxes)#overlap between gt and pred
@@ -110,40 +103,34 @@ class Evaluator():
                                                      1) if not 0 in match_cand_ixs.shape else np.array([])
                             non_match_gt_ixs = np.array(
                                 [ii for ii in np.arange(b_tar_boxes.shape[0]) if ii not in match_gt_ixs])#FN
-                            #print('match_cand_ixs',match_cand_ixs)
-                            #print('non match_cand_ixs',non_match_cand_ixs)
-                            #print('match_gt_ixs',match_gt_ixs)
-                            #print('non_match_gt_ixs',non_match_gt_ixs)
                             unique, counts = np.unique(match_gt_ixs, return_counts=True)
-                            #print('unique',unique)
-                            #print('count',counts)
 
                             # check for double assignments, i.e. two predictions having been assigned to the same gt.
                             # according to the COCO-metrics, only one prediction counts as true positive, the rest counts as
                             # false positive. This case is supposed to be avoided by the model itself by,
                             #  e.g. using a low enough NMS threshold.
-                            if np.any(counts > 1):
-                                double_match_gt_ixs = unique[np.argwhere(counts > 1)[:, 0]]
-                                #print('double_match_gt_ixs',double_match_gt_ixs)
-                                keep_max = []
-                                double_match_list = []
-                                for dg in double_match_gt_ixs:
-                                    double_match_cand_ixs = match_cand_ixs[np.argwhere(match_gt_ixs == dg)]
-                                    keep_max.append(double_match_cand_ixs[np.argmax(b_cand_scores[double_match_cand_ixs])])
-                                    double_match_list += [ii for ii in double_match_cand_ixs]
+                            #if np.any(counts > 1):
+                            #    double_match_gt_ixs = unique[np.argwhere(counts > 1)[:, 0]]
+                            #    #print('double_match_gt_ixs',double_match_gt_ixs)
+                            #    keep_max = []
+                            #    double_match_list = []
+                            #    for dg in double_match_gt_ixs:
+                            #        double_match_cand_ixs = match_cand_ixs[np.argwhere(match_gt_ixs == dg)]
+                            #        keep_max.append(double_match_cand_ixs[np.argmax(b_cand_scores[double_match_cand_ixs])])
+                            #        double_match_list += [ii for ii in double_match_cand_ixs]
 
-                                fp_ixs = np.array([ii for ii in match_cand_ixs if
-                                                     (ii in double_match_list and ii not in keep_max)])
+                            #    fp_ixs = np.array([ii for ii in match_cand_ixs if
+                            #                         (ii in double_match_list and ii not in keep_max)])
 
-                                match_cand_ixs = np.array([ii for ii in match_cand_ixs if ii not in fp_ixs])
+                            #    match_cand_ixs = np.array([ii for ii in match_cand_ixs if ii not in fp_ixs])
 
-                                df_list_preds += [ii for ii in b_cand_scores[fp_ixs]]
-                                df_list_labels += [0] * fp_ixs.shape[0]
-                                #df_list_labels += [tar_label] * fp_ixs.shape[0]
-                                df_list_class_preds += [cl] * fp_ixs.shape[0]
-                                df_list_pids += [pid] * fp_ixs.shape[0]
-                                df_list_type += ['det_fp'] * fp_ixs.shape[0]
-                                FP_roi += fp_ixs.shape[0]
+                            #    df_list_preds += [ii for ii in b_cand_scores[fp_ixs]]
+                            #    df_list_labels += [0] * fp_ixs.shape[0]
+                            #    #df_list_labels += [tar_label] * fp_ixs.shape[0]
+                            #    df_list_class_preds += [cl] * fp_ixs.shape[0]
+                            #    df_list_pids += [pid] * fp_ixs.shape[0]
+                            #    df_list_type += ['det_fp'] * fp_ixs.shape[0]
+                            #    FP_roi += fp_ixs.shape[0]
 
                             # matched:
                             if not 0 in match_cand_ixs.shape:
@@ -192,22 +179,9 @@ class Evaluator():
                             df_list_pids += [pid] * b_tar_boxes.shape[0]
                             df_list_type += ['det_fn'] * b_tar_boxes.shape[0]
                             FN_roi += b_tar_boxes.shape[0]
-                        # this patient is tn
-                        #if 0 in b_cand_boxes.shape and 0 in b_tar_boxes.shape:
-                        #    df_list_preds += [0] *1# b_tar_boxes.shape[0]
-                        #    df_list_labels += [0] * 1#b_tar_boxes.shape[0]
-                        #    #df_list_labels += [tar_label] *1# b_tar_boxes.shape[0]
-                        #    df_list_class_preds += [cl] * 1#b_tar_boxes.shape[0]
-                        #    df_list_pids += [pid] * 1#b_tar_boxes.shape[0]
-                        #    df_list_type += ['patient_tn'] * 1#b_tar_boxes.shape[0]
-                        #    TN_pat += 1
-
-                    #print('*'*100+'finish evaluator this patient')
                     # empty patient with 0 detections needs patient dummy score, in order to not disappear from stats.
                     # filtered out for roi-level evaluation later. During training (and val_sampling),
                     # tn are assigned per sample independently of associated patients.
-                    #print('has box patient',len(df_list_pids))
-                    #print('len_df_list_before_patient',len_df_list_before_patient)
                     if len(df_list_pids) == len_df_list_before_patient:#no box in all batch
                         df_list_preds += [0] * 1
                         df_list_labels += [0] * 1
@@ -225,12 +199,14 @@ class Evaluator():
         self.test_df['det_type'] = df_list_type
         self.test_df['fold'] = self.cf.fold
         self.test_df['match_iou'] = df_list_match_iou
-        if monitor_metrics is not None:
-            _,monitor_metric = self.return_metrics(monitor_metrics)
-            return monitor_metric,(TP_roi,FP_roi,FN_roi,TN_pat)
-        if flag == 'test':
-            return (TP_roi,FP_roi,FN_roi,TN_pat)
-        #return self.test_df,(TP_roi,FP_roi,FN_roi,TN_pat)
+        csvpth = cf.exp_dir + '{}_epoch{}.csv'.format(flag,epoch)
+        self.test_df.to_csv(csvpth)
+        #if monitor_metrics is not None:
+        #    _,monitor_metric = self.return_metrics(monitor_metrics)
+        #    return monitor_metric,(TP_roi,FP_roi,FN_roi,TN_pat)
+        #if flag == 'test':
+        #    return (TP_roi,FP_roi,FN_roi,TN_pat)
+        return (TP_roi,FP_roi,FN_roi,TN_pat)
 
 
     def return_metrics(self, monitor_metrics=None):
@@ -250,7 +226,6 @@ class Evaluator():
         all_stats = []
         for cl in list(self.cf.class_dict.keys()):
             cl_df = df[df.pred_class == cl]
-
             for score_level in self.cf.report_score_level:
                 stats_dict = {}
                 stats_dict['name'] = 'fold_{} {} cl_{}'.format(self.cf.fold, score_level, cl)
@@ -278,7 +253,6 @@ class Evaluator():
                 # confidence prediction for this class. The patient class label is 1 if roi of this class exists in patient, else 0.
                 if score_level == 'patient':
                     spec_df = cl_df.groupby(['pid'], as_index=False).agg({'class_label': 'max', 'pred_score': 'max', 'fold': 'first'})
-
                     if len(spec_df.class_label.unique()) > 1:
                         stats_dict['auc'] = roc_auc_score(spec_df.class_label.tolist(), spec_df.pred_score.tolist())
                         stats_dict['roc'] = roc_curve(spec_df.class_label.tolist(), spec_df.pred_score.tolist())

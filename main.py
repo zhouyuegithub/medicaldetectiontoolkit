@@ -24,7 +24,7 @@ import torch
 import utils.exp_utils as utils
 from evaluator import Evaluator 
 from predictor import Predictor
-from plotting import plot_batch_prediction, save_monitor_valuse
+from plotting import plot_batch_prediction, save_monitor_valuse,save_test_image
 from tensorboardX import SummaryWriter
 from utils.exp_utils import save_models
 
@@ -50,7 +50,7 @@ def train(logger):
 
     # prepare monitoring
     monitor_metrics, TrainingPlot = utils.prepare_monitoring(cf)
-    #print('finish initial metrics')
+    #print('monitor_metrics',monitor_metrics)
     if cf.resume_to_checkpoint:#default: False
         starting_epoch = utils.load_checkpoint(cf.resume_to_checkpoint, net, optimizer)
         logger.info('resumed to checkpoint {} at epoch {}'.format(cf.resume_to_checkpoint, starting_epoch))
@@ -76,26 +76,23 @@ def train(logger):
         #print('net.train()')
         for bix in range(cf.num_train_batches):#200
             num_batch += 1
-            batch = next(batch_gen['train'])
-            #print('*'*50+'load batch !')
-            #print('loading patient',batch['pid'])
-            #print('bbox',batch['bb_target'][0])#y1,x1,y2,x2,z1,z2
-            #print('data',batch['data'][0].shape)
-            #for (k,v) in batch.items():
+            batch = next(batch_gen['train'])#data,seg,pid,class_target,bb_target,roi_masks,roi_labels
+            for ii,i in enumerate(batch['roi_labels']):
+                if i[0] > 0:
+                    batch['roi_labels'][ii] = [1]
+                else:
+                    batch['roi_labels'][ii] = [-1]
+            #for k in batch.keys():
             #    print('k',k)
+
             tic_fw = time.time()
             results_dict = net.train_forward(batch)
             tic_bw = time.time()
-            #for (k,v) in results_dict.items():
-            #    print('k in results_dict',k)
-            #b = results_dict['boxes']
-            #print('len b', len(b))
-            #print('len b[0]',len(b[0]))
-            #for (k,v) in b[0][0].items():
-            #    print('k in boxes',k)
+
             optimizer.zero_grad()
             results_dict['torch_loss'].backward()#total loss
             optimizer.step()
+
             if (num_batch) % cf.show_train_images == 0:
                 fig = plot_batch_prediction(batch, results_dict, cf,'train')
                 writer.add_figure('/Train/results',fig,num_batch)
@@ -103,8 +100,6 @@ def train(logger):
             logger.info('tr. batch {0}/{1} (ep. {2}) fw {3:.3f}s / bw {4:.3f}s / total {5:.3f}s || '
                         .format(bix + 1, cf.num_train_batches, epoch, tic_bw - tic_fw,
                                 time.time() - tic_bw, time.time() - tic_fw) + results_dict['logger_string'])
-            #print('num_batch',num_batch)
-            #results_dict['monitor_values'] = {'loss': loss.item(), 'mrcnn_class_loss': mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(), 'mrcnn_mask_loss':mrcnn_mask_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item()}
             writer.add_scalar('Train/total_loss',results_dict['torch_loss'].item(),num_batch)
             writer.add_scalar('Train/rpn_class_loss',results_dict['monitor_losses']['rpn_class_loss'],num_batch)
             writer.add_scalar('Train/rpn_bbox_loss',results_dict['monitor_losses']['rpn_bbox_loss'],num_batch)
@@ -115,16 +110,12 @@ def train(logger):
             train_results_list.append([results_dict['boxes'], batch['pid']])
             monitor_metrics['train']['monitor_values'][epoch].append(results_dict['monitor_values'])
 
-        print('*'*100 + 'finish batch in epoch {}'.format(epoch))
-        #test_df, monitor_metrics['train'] = train_evaluator.evaluate_predictions(train_results_list, monitor_metrics['train'])
-        monitor_metrics['train'],count_train = train_evaluator.evaluate_predictions(train_results_list, monitor_metrics['train'])
-        #return (tp,fp,fn)
-        #print('count_train',count_train)
+        print('*'*10 + 'finish epoch {}'.format(epoch))
+        count_train = train_evaluator.evaluate_predictions(train_results_list,epoch,cf,flag = 'train')
         precision = count_train[0]/ (count_train[0]+count_train[1]+0.01)
         recall = count_train[0]/ (count_train[0]+count_train[2]+0.01)
-        #if recall > best_train_recall and epoch > 1:
-        #    save_monitor_valuse(cf,test_df,epoch,flag = 'train')
-        #    best_train_recall = recall
+        monitor_metrics['train']['train_recall'].append(recall)
+        monitor_metrics['train']['train_percision'].append(precision)
         writer.add_scalar('Train/train_precision',precision,epoch)
         writer.add_scalar('Train/train_recall',recall,epoch)
         train_time = time.time() - start_time
@@ -138,6 +129,11 @@ def train(logger):
                 for _ in range(batch_gen['n_val']):#50
                     num_val += 1
                     batch = next(batch_gen[cf.val_mode])
+                    for ii,i in enumerate(batch['roi_labels']):
+                        if i[0] > 0:
+                            batch['roi_labels'][ii] = [1]
+                        else:
+                            batch['roi_labels'][ii] = [-1]
                     if cf.val_mode == 'val_patient':
                         results_dict = val_predictor.predict_patient(batch)
                     elif cf.val_mode == 'val_sampling':
@@ -150,26 +146,20 @@ def train(logger):
                     val_results_list.append([results_dict['boxes'], batch['pid']])
                     monitor_metrics['val']['monitor_values'][epoch].append(results_dict['monitor_values'])
 
-                monitor_metrics['val'],count_val = val_evaluator.evaluate_predictions(val_results_list, monitor_metrics['val'])
+                count_val = val_evaluator.evaluate_predictions(val_results_list,epoch,cf,flag = 'val')
                 precision = count_val[0]/ (count_val[0]+count_val[1]+0.01)
                 recall = count_val[0]/ (count_val[0]+count_val[2]+0.01)
-                #if recall > best_val_recall and epoch > 1:
-                #    save_monitor_valuse(cf,test_df,epoch,flag = 'val')
-                #    best_val_recall = recall
+                monitor_metrics['val']['val_recall'].append(recall)
+                monitor_metrics['val']['val_percision'].append(precision) 
                 writer.add_scalar('Val/val_precision',precision,epoch)
                 writer.add_scalar('Val/val_recall',recall,epoch)
                 model_selector.run_model_selection(net, optimizer, monitor_metrics, epoch)
-                #save_models(cf,net,optimizer,epoch,recall)
 
             # update monitoring and prediction plots
             #TrainingPlot.update_and_save(monitor_metrics, epoch)
             epoch_time = time.time() - start_time
             logger.info('trained epoch {}: took {} sec. ({} train / {} val)'.format(
                 epoch, epoch_time, train_time, epoch_time-train_time))
-            #batch = next(batch_gen['val_sampling'])
-            #results_dict = net.train_forward(batch, is_validation=True)
-            #logger.info('plotting predictions from validation sampling.')
-            #fig = plot_batch_prediction(batch, results_dict, cf)
     writer.close()
 
 
@@ -183,9 +173,13 @@ def test(logger):
     test_predictor = Predictor(cf, net, logger, mode='test')
     test_evaluator = Evaluator(cf, logger, mode='test')
     batch_gen = data_loader.get_test_generator(cf, logger)
-    test_results_list = test_predictor.predict_test_set(batch_gen, return_results=True)
-    print('test_results_list',test_results_list)
-    count = test_evaluator.evaluate_predictions(test_results_list,flag = 'test')
+    test_results_list = test_predictor.predict_test_set(batch_gen,cf, return_results=True)
+    save_test_image(test_results_list)
+    print('test_results_list',(test_results_list[0][0][0]))
+    print('test_results_list patient',(test_results_list[0][1]))
+    print('test_results_list',(test_results_list[1][0][0]))
+    print('test_results_list patient',(test_results_list[1][1]))
+    count = test_evaluator.evaluate_predictions(test_results_list,0,cf,flag = 'test')
     print('tp {}, fp {}, fn {}'.format(count[0],count[1],count[2]))
     test_evaluator.score_test_df()
 
@@ -193,11 +187,11 @@ def test(logger):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--mode', type=str,  default='train_test',
+    parser.add_argument('-m', '--mode', type=str,  default='train',
                         help='one out of: train / test / train_test / analysis / create_exp')
     parser.add_argument('-f','--folds', nargs='+', type=int, default=[1],
                         help='None runs over all folds in CV. otherwise specify list of folds.')
-    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/0619_frcnn/',
+    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/0620_one/',
                         help='path to experiment dir. will be created if non existent.')
     parser.add_argument('--server_env', default=False, action='store_true',
                         help='change IO settings to deploy models on a cluster.')
@@ -226,7 +220,7 @@ if __name__ == '__main__':
             cf.test_n_epochs =  cf.save_n_models
             cf.max_test_patients = 1
 
-        cf.data_dest = args.data_dest
+        cf.data_dest = args.data_dest#false
         cf.resume_to_checkpoint = resume_to_checkpoint#default:None
         ### import model and dataloader
         model = utils.import_module('model', cf.model_path)
@@ -241,7 +235,7 @@ if __name__ == '__main__':
                 os.mkdir(cf.fold_dir)
             logger = utils.get_logger(cf.fold_dir)#loginfo for this fold
             train(logger)
-            print('*'*100+'finish train all epoches')
+            print('*'*10+'finish train all epoches')
             cf.resume_to_checkpoint = None
             if args.mode == 'train_test':
                 test(logger)
@@ -258,7 +252,6 @@ if __name__ == '__main__':
             cf.test_n_epochs =  1; cf.max_test_patients = 1
 
         cf.data_dest = args.data_dest
-        print('model_path',cf.model_path)
         model = utils.import_module('model', cf.model_path)
         data_loader = utils.import_module('dl', os.path.join(args.exp_source, 'data_loader.py'))
         if folds is None:

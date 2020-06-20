@@ -287,6 +287,8 @@ def compute_mrcnn_bbox_loss(mrcnn_target_deltas, mrcnn_pred_deltas, target_class
     :param target_class_ids: (n_sampled_rois)
     :return: loss: torch 1D tensor.
     """
+    print('in compute_mrcnn_bbox_loss')
+    print('target_class_ids',target_class_ids)
     if 0 not in torch.nonzero(target_class_ids > 0).size():
         positive_roi_ix = torch.nonzero(target_class_ids > 0)[:, 0]
         positive_roi_class_ids = target_class_ids[positive_roi_ix].long()
@@ -775,7 +777,6 @@ def refine_detections(rois, probs, deltas, batch_ixs, cf):
 
 
 def get_results(cf, img_shape, detections, detection_masks, box_results_list=None, return_masks=True):
-    print('in get_results')
     """
     Restores batch dimension of merged detections, unmolds detections, creates and fills results dict.
     :param img_shape:
@@ -834,8 +835,6 @@ def get_results(cf, img_shape, detections, detection_masks, box_results_list=Non
             # Resize masks to original image size and set boundary threshold.
             full_masks = []
             permuted_image_shape = list(img_shape[2:]) + [img_shape[1]]
-            print('img',img_shape)
-            print('permuted_image_shape',permuted_image_shape)
             if return_masks:#Ture for validation
                 for i in range(masks.shape[0]):
                     # Convert neural network mask to full size mask.
@@ -847,8 +846,6 @@ def get_results(cf, img_shape, detections, detection_masks, box_results_list=Non
                 (*permuted_image_shape[:-1],))
 
             # add final perdictions to results.
-            #print('boxes',boxes.shape)
-            #print('scores',(scores))
             thisbox = 0
             if 0 not in boxes.shape:
                 for ix2, score in enumerate(scores):
@@ -856,16 +853,11 @@ def get_results(cf, img_shape, detections, detection_masks, box_results_list=Non
                         thisbox += 1
                         box_results_list[ix].append({'box_coords': boxes[ix2], 'box_score': score,
                                                  'box_type': 'det', 'box_pred_class_id': class_ids[ix2]})#come from detections
-                #print('box_results_list in get_results',box_results_list[ix][-1])
-            print('this epoch pred box',thisbox)
         else:
             # pad with zero dummy masks.
             final_masks = np.zeros(img_shape[2:])
 
         seg_preds.append(final_masks)
-        #print('final_masks',final_masks.shape)
-        #_ = np.round(np.array(seg_preds))[:,:np.newaxis].astype('uint8')
-        #print('final_masks',_.shape)
     # create and fill results dictionary.
     results_dict = {'boxes': box_results_list,
                     'seg_preds': np.round(np.array(seg_preds))[:, np.newaxis].astype('uint8')}
@@ -936,76 +928,46 @@ class net(nn.Module):
                 'seg_preds': pixel-wise class predictions (b, 1, y, x, (z)) with values [0, n_classes].
                 'monitor_values': dict of values to be monitored.
         """
-        #print('in train_forward')
-        #for k in batch.keys():
-        #    print('k:{}'.format(k))
         img = batch['data']
         gt_class_ids = batch['roi_labels']
+        print('gt_class_ids',gt_class_ids)
         gt_boxes = batch['bb_target']
         axes = (0, 2, 3, 1) if self.cf.dim == 2 else (0, 2, 3, 4, 1)
         gt_masks = [np.transpose(batch['roi_masks'][ii], axes=axes) for ii in range(len(batch['roi_masks']))]
-        #print('img',img.shape)
-        #print('gt_class_ids',gt_class_ids)
-        #print('gt_boxes',gt_boxes[0])
-        #print('before gt_masks',batch['roi_masks'][0].shape)
-        #print('gt_masks',gt_masks[0].shape)#(1,64,128,128,1)
 
         img = torch.from_numpy(img).float().cuda()
         batch_rpn_class_loss = torch.FloatTensor([0]).cuda()
         batch_rpn_bbox_loss = torch.FloatTensor([0]).cuda()
 
         # list of output boxes for monitoring/plotting. each element is a list of boxes per batch element.
-        box_results_list = [[] for _ in range(img.shape[0])]#len==8
+        box_results_list = [[] for _ in range(img.shape[0])]
 
         #forward passes. 1. general forward pass, where no activations are saved in second stage (for performance
         # monitoring and loss sampling). 2. second stage forward pass of sampled rois with stored activations for backprop.
         rpn_class_logits, rpn_pred_deltas, proposal_boxes, detections, detection_masks = self.forward(img)
         # detection and detection masks just used for getresult
-        #return [rpn_pred_logits, rpn_pred_deltas, batch_proposal_boxes, detections, detection_masks]
-        #print('*'*100+'finish first stage')
-        #print('rpn_class_logits',rpn_class_logits.shape)
-        #print('rpn_pred_deltas',rpn_pred_deltas.shape)
-        #print('proposal_boxes',proposal_boxes.shape)
-        #print('detections',detections.shape)
-        #print('detection_masks',detection_masks.shape)
         mrcnn_class_logits, mrcnn_pred_deltas, mrcnn_pred_mask, target_class_ids, mrcnn_target_deltas, target_mask,  \
         sample_proposals = self.loss_samples_forward(gt_class_ids, gt_boxes, gt_masks)
-        #print('*'*100+'finish second stage')
-        #print('mrcnn_class_logits',mrcnn_class_logits.shape)
-        #print('mrcnn_pred_deltas',mrcnn_pred_deltas.shape)
-        #print('mrcnn_pred_mask',mrcnn_pred_mask.shape)
-        #print('sample_proposals',sample_proposals.shape)
         #return [sample_logits, sample_boxes, sample_mask, sample_target_class_ids, sample_target_deltas,
-        #sample_target_mask, sample_proposals]
+        #        sample_target_mask, sample_proposals]
+        #print('*'*100+'finish second stage')
 
         # loop over batch for loss
         for b in range(img.shape[0]):
-            #print('*'*100+'result of batch {}'.format(b))
             if len(gt_boxes[b]) > 0:#if tumor is this roi
 
                 # add gt boxes to output list for monitoring.
                 for ix in range(len(gt_boxes[b])):#ix = 0,1,2
-                    #print('b',b)
-                    #print('bbox',batch['bb_target'][b])
-                    #print('gt bbox',gt_boxes[b])
-                    #print('rois',batch['roi_labels'][b])
                     box_results_list[b].append({'box_coords': batch['bb_target'][b][ix],
                                                 'box_label': batch['roi_labels'][b][ix], 'box_type': 'gt'})
-                #print('box_results_list',(box_results_list[b][0]))
-                #for (k,v) in box_results_list[b][0].items():
-                #    if k == 'box_type':
-                #        print('gt',v)
                 # match gt boxes with anchors to generate targets for RPN losses.
                 rpn_match, rpn_target_deltas = mutils.gt_anchor_matching(self.cf, self.np_anchors, gt_boxes[b],gt_class_ids[b])
-                #print('rpn_target_deltas',rpn_target_deltas)
-                #print('rpn_match',rpn_match)
-                #print('rpn_match',np.array(rpn_match).max())
+                #print('rpn_match',rpn_match.shape)
+                #print('rpn_target_deltas',rpn_target_deltas.shape)
                 # add positive anchors used for loss to output list for monitoring.
                 pos_anchors = mutils.clip_boxes_numpy(self.np_anchors[np.argwhere(rpn_match > 0)][:, 0], img.shape[2:])
-                #print('pos_anchors',pos_anchors)
                 for p in pos_anchors:
                     box_results_list[b].append({'box_coords': p, 'box_type': 'pos_anchor'})
-                #print('box_results_list add anchor',box_results_list[b][1])
 
             else:
                 rpn_match = np.array([-1]*self.np_anchors.shape[0])
@@ -1017,36 +979,25 @@ class net(nn.Module):
             # compute RPN losses.
             rpn_class_loss, neg_anchor_ix = compute_rpn_class_loss(rpn_match, rpn_class_logits[b], self.cf.shem_poolsize)#10
             rpn_bbox_loss = compute_rpn_bbox_loss(rpn_target_deltas, rpn_pred_deltas[b], rpn_match)
-            #print('rpn_class_loss',rpn_class_loss)
-            #print('rpn_bbox_loss',rpn_bbox_loss)
             batch_rpn_class_loss += rpn_class_loss / img.shape[0]
             batch_rpn_bbox_loss += rpn_bbox_loss / img.shape[0]
 
             # add negative anchors used for loss to output list for monitoring.
             neg_anchors = mutils.clip_boxes_numpy(self.np_anchors[np.argwhere(rpn_match == -1)][0, neg_anchor_ix], img.shape[2:])
-            #print('neg_anchors',neg_anchors)
             for n in neg_anchors:
                 box_results_list[b].append({'box_coords': n, 'box_type': 'neg_anchor'})
-            #if len(neg_anchors)>0:
-            #    print('box_results_list add neg anchor',box_results_list[b][-1])
             # add highest scoring proposals to output list for monitoring.
             rpn_proposals = proposal_boxes[b][proposal_boxes[b, :, -1].argsort()][::-1]#75,7 from big score to small
             for r in rpn_proposals[:self.cf.n_plot_rpn_props, :-1]:#30
-                #print('prop')
-                #print('score',rpn_proposals[:self.cf.n_plot_rpn_props,-1])
-                #print('r',r)
                 box_results_list[b].append({'box_coords': r, 'box_type': 'prop'})#from the first stage original rois with batch info
-            #print('box proposals',box_results_list[b][-1])
         # add positive and negative roi samples used for mrcnn losses to output list for monitoring.
-        if 0 not in sample_proposals.shape:#proposals from the first stage
+        if 0 not in sample_proposals.shape:#proposals from the first stage selected in second stage
             rois = mutils.clip_to_window(self.cf.window, sample_proposals).cpu().data.numpy()#8,7
             for ix, r in enumerate(rois):
                 box_results_list[int(r[-1])].append({'box_coords': r[:-1] * self.cf.scale,'box_type': 'pos_class' if target_class_ids[ix] > 0 else 'neg_class'})#from rpn_rois_batch_info normed box
         # compute mrcnn losses.
         mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
         mrcnn_bbox_loss = compute_mrcnn_bbox_loss(mrcnn_target_deltas, mrcnn_pred_deltas, target_class_ids)
-        #print('mrcnn_class_loss',mrcnn_class_loss)
-        #print('mrcnn_bbox_loss',mrcnn_bbox_loss)
         # mrcnn can be run without pixelwise annotations available (Faster R-CNN mode).
         # In this case, the mask_loss is taken out of training.
         if not self.cf.frcnn_mode:#default: False
@@ -1057,20 +1008,11 @@ class net(nn.Module):
         loss = batch_rpn_class_loss + batch_rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
 
         # monitor RPN performance: detection count = the number of correctly matched proposals per fg-class.
-        #for c in np.arange(self.cf.head_classes)[1:]:
-        #    print('c',c)
-        #    print('target_class_ids',list(target_class_ids.cpu().data.numpy()))
-        #    print('count',list(target_class_ids.cpu().data.numpy()).count(0))
-        #print('target_class',target_class_ids.cpu().data.numpy())
         dcount = [list(target_class_ids.cpu().data.numpy()).count(c) for c in np.arange(self.cf.head_classes)[1:]]
-        #print('dcount',dcount)
-
         # run unmolding of predictions for monitoring and merge all results to one dictionary.
         return_masks = self.cf.return_masks_in_val if is_validation else False#False for training True for validation
         results_dict = get_results(self.cf, img.shape, detections, detection_masks,
                                    box_results_list, return_masks=return_masks)#return box and segmap
-        #results_dict = {'boxes': box_results_list,
-        #            'seg_preds': np.round(np.array(seg_preds))[:, np.newaxis].astype('uint8')}
 
         results_dict['torch_loss'] = loss
         results_dict['monitor_values'] = {'loss': loss.item(), 'mrcnn_class_loss': mrcnn_class_loss.item()}
@@ -1113,46 +1055,28 @@ class net(nn.Module):
         :return: detection_masks: (n_final_detections, n_classes, y, x, (z)) raw molded masks as returned by mask-head.
         """
         # extract features.
-        #print('img',img.shape)
         fpn_outs = self.fpn(img)
-        #print('finish feature extracture')
-        #print('pyramid_levels',self.cf.pyramid_levels)
+
         rpn_feature_maps = [fpn_outs[i] for i in self.cf.pyramid_levels]
-        #print('rpn_feature_maps',len(rpn_feature_maps))
         self.mrcnn_feature_maps = rpn_feature_maps
 
         # loop through pyramid layers and apply RPN.
         layer_outputs = []  # list of lists
         for p in rpn_feature_maps:
             outrpn = self.rpn(p)
-            #print('outrpn',len(outrpn))
-            #print('outrpn rpn_pred_logits',outrpn[0].shape)
-            #print('outrpn rpn_pred_probs',outrpn[1].shape)
-            #print('outrpn rpn_pred_bbox',outrpn[2].shape)
             layer_outputs.append(outrpn)
 
         # concatenate layer outputs.
         # convert from list of lists of level outputs to list of lists of outputs across levels.
         # e.g. [[a1, b1, c1], [a2, b2, c2]] => [[a1, a2], [b1, b2], [c1, c2]]
         outputs = list(zip(*layer_outputs))
-        #print('outputs',len(outputs))
-        #print('outputs rpn_bbox',outputs[-1][0].shape)
-        #print('outputs rpn_probs',outputs[1][0].shape)
         outputs = [torch.cat(list(o), dim=1) for o in outputs]
         rpn_pred_logits, rpn_pred_probs, rpn_pred_deltas = outputs
-        #print('rpn_pred_probs',rpn_pred_probs.shape)
-        #print('rpn_pred_deltas',rpn_pred_deltas.shape)
-        #print('rpn_pred_probs',rpn_pred_probs.shape)
         # generate proposals: apply predicted deltas to anchors and filter by foreground scores from RPN classifier.
         proposal_count = self.cf.post_nms_rois_training if is_training else self.cf.post_nms_rois_inference#75
         batch_rpn_rois, batch_proposal_boxes = proposal_layer(rpn_pred_probs, rpn_pred_deltas, proposal_count, self.anchors, self.cf)#normed and roi 75
-        #return batch_normalized_boxes, batch_out_proposals
-        #print('finish proposal_layer')
-        #print('batch_rpn_rois',batch_rpn_rois.shape)
-        #print('batch_proposal_boxes',batch_proposal_boxes.shape)
         # merge batch dimension of proposals while storing allocation info in coordinate dimension.
         batch_ixs = torch.from_numpy(np.repeat(np.arange(batch_rpn_rois.shape[0]), batch_rpn_rois.shape[1])).float().cuda()
-        #print('batch_ixs',batch_ixs)
         rpn_rois = batch_rpn_rois.view(-1, batch_rpn_rois.shape[2])#from (8,75,6) to (600,6)
         self.rpn_rois_batch_info = torch.cat((rpn_rois, batch_ixs.unsqueeze(1)), dim=1)#normalize rpnrois with batch ix(600,7)
 
@@ -1175,22 +1099,14 @@ class net(nn.Module):
         #print('after classifier batch_mrcnn_class_scores',self.batch_mrcnn_class_scores.shape)
         # refine classified proposals, filter and return final detections.
         detections = refine_detections(rpn_rois, self.batch_mrcnn_class_scores, batch_mrcnn_bbox, batch_ixs, self.cf, )
-        #print('detections',detections.shape)
         # forward remaining detections through mask-head to generate corresponding masks.
         scale = [img.shape[2]]+ [img.shape[-1]]+[img.shape[2]]  + [img.shape[-1]] * 3
-        #scale = [img.shape[2]] * 4 + [img.shape[-1]] * 2
         scale = torch.from_numpy(np.array(scale[:self.cf.dim * 2] + [1])[None]).float().cuda()
-        #print('scale',scale)
 
-        #print('detections',detections[0,:self.cf.dim*2+1])
-        #print('detections',detections[1,:self.cf.dim*2+1])
-        #print('detections',detections[2,:self.cf.dim*2+1])
-        #print('detections',detections[3,:self.cf.dim*2+1])
         detection_boxes = detections[:, :self.cf.dim * 2 + 1] / scale#with batch_idx
         #print('detection_boxes',detection_boxes.shape)
         with torch.no_grad():
             detection_masks = self.mask(self.mrcnn_feature_maps, detection_boxes)
-        #print('detection_masks',detection_masks.shape)
         return [rpn_pred_logits, rpn_pred_deltas, batch_proposal_boxes, detections, detection_masks]
 
 
@@ -1209,20 +1125,16 @@ class net(nn.Module):
         :return: sample_target_masks: (n_sampled_rois, y, x, (z)) target masks of sampled proposals.
         :return: sample_proposals: (n_sampled_rois, 2 * dim) RPN output for sampled proposals. only for monitoring/plotting.
         """
-        #print('in loss_samples_forward')
-        #print('gt_class_ids',batch_gt_class_ids.shape)
-        #print('gt_boxes',batch_gt_boxes.shape)
-        #print('gt_masks',batch_gt_masks[0].shape)
         # sample rois for loss and get corresponding targets for all Mask R-CNN head network losses.
         #return sample_indices, target_class_ids, target_deltas, target_masks
         sample_ix, sample_target_class_ids, sample_target_deltas, sample_target_mask = \
             detection_target_layer(self.rpn_rois_batch_info, self.batch_mrcnn_class_scores,#(600,7)(600,,3)
                                    batch_gt_class_ids, batch_gt_boxes, batch_gt_masks, self.cf)#normlized bbox
         #return sample_indices, target_class_ids, target_deltas, target_masks
-        #print('sample_ix',sample_ix)
-        #print('sample_target_class_ids',sample_target_class_ids)
-        #print('sample_target_deltas',sample_target_deltas)
-        #print('sample_target_mask',sample_target_mask.shape)
+        print('sample_ix',sample_ix)
+        print('sample_target_class_ids',sample_target_class_ids)
+        print('sample_target_deltas',sample_target_deltas.shape)
+        print('sample_target_mask',sample_target_mask.shape)
 
         # re-use feature maps and RPN output from first forward pass.
        # print('rpn_rois_batch_info',len(self.rpn_rois_batch_info))

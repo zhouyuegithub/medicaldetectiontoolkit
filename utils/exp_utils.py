@@ -246,7 +246,10 @@ def prepare_monitoring(cf):
         if cl == 'patient':
             metrics['train'][cl + '_auc'] = [None]
             metrics['val'][cl + '_auc'] = [None]
-
+    metrics['train']['train_recall'] = [None]
+    metrics['train']['train_percision'] = [None]
+    metrics['val']['val_recall'] = [None]
+    metrics['val']['val_percision'] = [None]
     metrics['train']['monitor_values'] = [[] for _ in range(cf.num_epochs + 1)]
     metrics['val']['monitor_values'] = [[] for _ in range(cf.num_epochs + 1)]
 

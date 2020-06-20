@@ -21,7 +21,8 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 import os
 from copy import deepcopy
-
+def save_test_image(results_list):
+    print('in save_test_image')
 def save_monitor_valuse(cf,test_df,epoch,flag = 'val'):
     pth = cf.exp_dir
     filename = flag+'_{}'.format(epoch)+'.csv'
@@ -46,52 +47,36 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
         pids = [pids] * data.shape[0]
 
     seg_preds = results_dict['seg_preds']
-    roi_results = deepcopy(results_dict['boxes'])
-    #print('seg_preds',seg_preds.shape)
-    #print('roi_results',len(roi_results))#8
+    roi_results = deepcopy(results_dict['boxes'])#len == batch size
     # Randomly sampled one patient of batch and project data into 2D slices for plotting.
     if cf.dim == 3:
         patient_ix = np.random.choice(data.shape[0])
-        #print('pids',pids)
-        #print('showing patient',pids[patient_ix])
         outfile = os.path.join(cf.plot_dir, 'pred_example_{}_{}_{}.png'.format(mode,cf.fold,pids[patient_ix]))
         data = np.transpose(data[patient_ix], axes=(3, 0, 1, 2))#128,1,64,128
-        #print('data',data.shape)
         # select interesting foreground section to plot.
         gt_boxes = [box['box_coords'] for box in roi_results[patient_ix] if box['box_type'] == 'gt']
-        #print('this gt',(gt_boxes))#1
         if len(gt_boxes) > 0:
             center = int((gt_boxes[0][5]-gt_boxes[0][4])/2+gt_boxes[0][4])
-            #z_cuts = [np.max((int(gt_boxes[0][4]) - 5, 0)), np.min((int(gt_boxes[0][5]) + 5, data.shape[0]))]#max len = 10
             z_cuts = [np.max((center - 5, 0)), np.min((center + 5, data.shape[0]))]#max len = 10
         else:
             z_cuts = [data.shape[0]//2 - 5, int(data.shape[0]//2 + np.min([5, data.shape[0]//2]))]
-        #print('z_cuts',z_cuts)
         p_roi_results = roi_results[patient_ix]
-        #print('p_roi_results',len(p_roi_results))
-        roi_results = [[] for _ in range(data.shape[0])]#len = 64
+        roi_results = [[] for _ in range(data.shape[0])]#len = 128
 
         # iterate over cubes and spread across slices.
-        for box in p_roi_results:
+        for box in p_roi_results:#box is a list
             b = box['box_coords']
-            #label_ = box['box_type']
-            #print('label_',label_)
-            #print('box',b)
             # dismiss negative anchor slices.
             slices = np.round(np.unique(np.clip(np.arange(b[4], b[5] + 1), 0, data.shape[0]-1)))
             #print('slices',slices)
             for s in slices:
                 roi_results[int(s)].append(box)
                 roi_results[int(s)][-1]['box_coords'] = b[:4]#change 3d box to 2d
-            #print('roi_results',roi_results[int(s)])
-        roi_results = roi_results[z_cuts[0]: z_cuts[1]]
-        #print('roi_results',len(roi_results))
+        roi_results = roi_results[z_cuts[0]: z_cuts[1]]#extract slices to show
         data = data[z_cuts[0]: z_cuts[1]]
         segs = np.transpose(segs[patient_ix], axes=(3, 0, 1, 2))[z_cuts[0]: z_cuts[1]]#gt
         seg_preds = np.transpose(seg_preds[patient_ix], axes=(3, 0, 1, 2))[z_cuts[0]: z_cuts[1]]#pred seg
         pids = [pids[patient_ix]] * data.shape[0]
-        #print('data',data.shape)#10,1,64,128
-        #print('seg_preds',seg_preds.shape)
 
     try:
         # all dimensions except for the 'channel-dimension' are required to match
@@ -103,16 +88,10 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
 
 
     show_arrays = np.concatenate([data, segs, seg_preds, data[:, 0][:, None]], axis=1).astype(float)
-    #print('show_arrays',show_arrays.shape)#10,4,64,128
     approx_figshape = (4 * show_arrays.shape[0], 4 * show_arrays.shape[1])
-    #approx_figshape = (show_arrays.shape[0], show_arrays.shape[1])
-    #print('approx_figshape',approx_figshape)
-    #print('data',data.shape)
     fig = plt.figure(figsize=approx_figshape)
     gs = gridspec.GridSpec(show_arrays.shape[1] + 1, show_arrays.shape[0])
-    #gs = gridspec.GridSpec(show_arrays.shape[1] , show_arrays.shape[0])
     gs.update(wspace=0.1, hspace=0.1)
-    ## image size = b*m
     for b in range(show_arrays.shape[0]):#10(0...9)
         for m in range(show_arrays.shape[1]):#4(0,1,2,3)
 
@@ -138,12 +117,9 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
                 #print('showing image',m)
                 for box in roi_results[b]:
                     #if box['box_type'] != 'patient_tn_box': # don't plot true negative dummy boxes.
-                    if box['box_type'] == 'det' or box['box_type'] == 'gt':
+                    if box['box_type'] == 'det' or box['box_type'] == 'gt':#just show gt and det
                         coords = box['box_coords']
-                        #print('type',box['box_type'])
-                        #print('coords',coords)
                         if box['box_type'] == 'det':
-                            #print('has det')
                             # dont plot background preds or low confidence boxes.
                             if box['box_pred_class_id'] > 0 and box['box_score'] > cf.source_th:#detected box
                                 plot_text = True
@@ -174,10 +150,6 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
 
                         color_var = 'extra_usage' if 'extra_usage' in list(box.keys()) else 'box_type'
                         color = cf.box_color_palette[box[color_var]]
-                        #print('type',box[color_var])
-                        #print('color',color)
-                        #self.box_color_palette = {'det': 'b', 'gt': 'r', 'neg_class': 'purple',
-                        #          'prop': 'w', 'pos_class': 'g', 'pos_anchor': 'c', 'neg_anchor': 'c'}
                         ax.plot([coords[1], coords[3]], [coords[0], coords[0]], color=color, linewidth=1, alpha=1) # up
                         ax.plot([coords[1], coords[3]], [coords[2], coords[2]], color=color, linewidth=1, alpha=1) # down
                         ax.plot([coords[1], coords[1]], [coords[0], coords[2]], color=color, linewidth=1, alpha=1) # left
@@ -188,7 +160,6 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
         plt.savefig(outfile)
     except:
         raise Warning('failed to save plot.')
-    #plt.close(fig)
     return fig
 
 class TrainingPlot_2Panel():
