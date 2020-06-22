@@ -119,8 +119,6 @@ class Predictor:
                 results_dict['boxes'] = merge_2D_to_3D_preds_per_patient(merge_dims_inputs)[0]
 
         return results_dict
-
-
     def predict_test_set(self, batch_gen,cf, return_results=True):
         """
         wrapper around test method, which loads multiple (or one) epoch parameters (temporal ensembling), loops through
@@ -144,7 +142,8 @@ class Predictor:
             testing_epoch = self.epoch_ranking[rank_ix]
             self.logger.info(('tmp ensembling over rank_ix:{} epoch:{}'.format(rank_ix, weight_path)))
             self.net.load_state_dict(torch.load(weight_path))
-            self.net.eval()
+            #self.net.eval()
+            self.net.train()
             self.rank_ix = str(rank_ix)  # get string of current rank for unique patch ids.
             with torch.no_grad():
                 for _ in range(batch_gen['n_test']):
@@ -208,7 +207,7 @@ class Predictor:
             pickle.dump(list_of_results_per_patient, handle)
 
         if return_results:#true
-            #return list_of_results_per_patient
+            #return list_of_results_per_patient,testing_epoch
             # consolidate predictions.
             self.logger.info('applying wcs to test set predictions with iou = {} and n_ens = {}.'.format(
                 self.cf.wcs_iou, self.n_ens))
@@ -227,7 +226,127 @@ class Predictor:
                 pool.close()
                 pool.join()
 
-            return list_of_results_per_patient
+            return list_of_results_per_patient,testing_epoch
+
+    #def predict_test_set(self, batch_gen,cf, return_results=True):
+    #    """
+    #    wrapper around test method, which loads multiple (or one) epoch parameters (temporal ensembling), loops through
+    #    the test set and collects predictions per patient. Also flattens the results per patient and epoch
+    #    and adds optional ground truth boxes for evaluation. Saves out the raw result list for later analysis and
+    #    optionally consolidates and returns predictions immediately.
+    #    :return: (optionally) list_of_results_per_patient: list over patient results. each entry is a dict with keys:
+    #             - 'boxes': list over batch elements. each element is a list over boxes, where each box is
+    #                        one dictionary: [[box_0, ...], [box_n,...]]. batch elements are slices for 2D predictions
+    #                        (if not merged to 3D), and a dummy batch dimension of 1 for 3D predictions.
+    #             - 'seg_preds': not implemented yet. todo for evaluation of instance/semantic segmentation.
+    #    """
+    #    #print('in predict_test_set')
+    #    dict_of_patient_results = OrderedDict()
+
+    #    # get paths of all parameter sets to be loaded for temporal ensembling. (or just one for no temp. ensembling).
+    #    weight_paths = [os.path.join(self.cf.fold_dir, '{}_best_checkpoint'.format(epoch), 'params.pth') for epoch in self.epoch_ranking]
+    #    weight_paths = [weight_paths[0]]#test the best model
+    #    for rank_ix, weight_path in enumerate(weight_paths):
+    #        testing_epoch = self.epoch_ranking[rank_ix]
+    #        self.logger.info(('tmp ensembling over rank_ix:{} epoch:{}'.format(rank_ix, weight_path)))
+    #        self.net.load_state_dict(torch.load(weight_path))
+    #        self.net.eval()
+    #        self.rank_ix = str(rank_ix)  # get string of current rank for unique patch ids.
+    #        with torch.no_grad():
+    #            for _ in range(batch_gen['n_test']):
+
+    #                batch = next(batch_gen['test'])
+    #                for i in batch['patient_roi_labels']:
+    #                    if i[0] > 0:
+    #                        batch['patient_roi_labels'][0] = [1]
+    #                #for k in batch.keys():
+    #                #    print('k',k)
+    #                #    if k == 'patient_roi_labels':
+    #                #        print(batch[k])
+    #                # store batch info in patient entry of results dict.
+    #                if batch['pid'] not in dict_of_patient_results.keys():
+    #                    dict_of_patient_results[batch['pid']] = {}
+    #                    dict_of_patient_results[batch['pid']]['results_list'] = []
+    #                    dict_of_patient_results[batch['pid']]['patient_bb_target'] = batch['patient_bb_target']
+    #                    dict_of_patient_results[batch['pid']]['patient_roi_labels'] = batch['patient_roi_labels']
+    #                    #print('pid',batch['pid'])
+    #                    #print('gt box', batch['patient_bb_target'])
+    #                    #print('gt cls',batch['patient_roi_labels'])
+    #                    #print('data',batch['data'].shape)# 18,1,64,128,128
+
+    #                # call prediction pipeline and store results in dict.
+    #                results_dict = self.predict_patient(batch)#pred box and seg of this batch
+    #                #print('finish this pat')
+    #                #print('in predict_test_set',len(results_dict['boxes']))
+    #                #print('in predict_test_set',len(results_dict['boxes'][0]))
+    #                #for k in results_dict['boxes'][0][0].keys():
+    #                #    print('k',k)
+    #                #fig = plot_batch_prediction(batch, results_dict, cf,'test')
+    #                #print('results_dict',results_dict['boxes'])
+    #                dict_of_patient_results[batch['pid']]['results_list'].append(results_dict['boxes'])
+
+
+    #    self.logger.info('finished predicting test set. starting post-processing of predictions.')
+    #    list_of_results_per_patient = []
+
+    #    # loop over patients again to flatten results across epoch predictions.
+    #    # if provided, add ground truth boxes for evaluation.
+    #    for pid, p_dict in dict_of_patient_results.items():
+    #        tmp_ens_list = p_dict['results_list']
+    #        results_dict = {}
+    #        # collect all boxes/seg_preds of same batch_instance over temporal instances.
+    #        results_dict['boxes'] = [[item for d in tmp_ens_list for item in d[batch_instance]]
+    #                                 for batch_instance in range(len(tmp_ens_list[0]))]
+
+    #        # TODO return for instance segmentation:
+    #        # results_dict['seg_preds'] = np.mean(results_dict['seg_preds'], 1)[:, None]
+    #        # results_dict['seg_preds'] = np.array([[item for d in tmp_ens_list for item in d['seg_preds'][batch_instance]]
+    #        #                                       for batch_instance in range(len(tmp_ens_list[0]['boxes']))])
+
+    #        # add 3D ground truth boxes for evaluation.
+    #        for b in range(p_dict['patient_bb_target'].shape[0]):
+    #            for t in range(len(p_dict['patient_bb_target'][b])):
+    #                results_dict['boxes'][b].append({'box_coords': p_dict['patient_bb_target'][b][t],
+    #                                                 'box_label': p_dict['patient_roi_labels'][b][t],
+    #                                                 'box_type': 'gt'})
+
+    #        list_of_results_per_patient.append([results_dict['boxes'], pid])
+    #    return list_of_results_per_patient
+    #    print('list_of_results_per_patient',len(list_of_results_per_patient))
+    #    print(list_of_results_per_patient[0][1])
+    #    print(list_of_results_per_patient[1][1])
+    #    # save out raw predictions.
+    #    out_string = 'raw_pred_boxes_hold_out_list' if self.cf.hold_out_test_set else 'raw_pred_boxes_list'#false
+    #    with open(os.path.join(self.cf.fold_dir, '{}.pickle'.format(out_string)), 'wb') as handle:
+    #        pickle.dump(list_of_results_per_patient, handle)
+
+    #    if return_results:#true
+    #        print('list_of_results_per_patient',len(list_of_results_per_patient))
+    #        print(list_of_results_per_patient[0][1])
+    #        print(list_of_results_per_patient[1][1])
+    #        return list_of_results_per_patient
+    #        # consolidate predictions.
+    #        self.logger.info('applying wcs to test set predictions with iou = {} and n_ens = {}.'.format(
+    #            self.cf.wcs_iou, self.n_ens))#1e-5, 1
+    #        pool = Pool(processes=6)
+    #        mp_inputs = [[ii[0], ii[1], self.cf.class_dict, self.cf.wcs_iou, self.n_ens] for ii in list_of_results_per_patient]
+    #        list_of_results_per_patient = pool.map(apply_wbc_to_patient, mp_inputs, chunksize=1)
+    #        pool.close()
+    #        pool.join()
+
+    #        # merge 2D boxes to 3D cubes. (if model predicts 2D but evaluation is run in 3D)
+    #        if self.cf.merge_2D_to_3D_preds:
+    #            self.logger.info('applying 2Dto3D merging to test set predictions with iou = {}.'.format(self.cf.merge_3D_iou))
+    #            pool = Pool(processes=6)
+    #            mp_inputs = [[ii[0], ii[1], self.cf.class_dict, self.cf.merge_3D_iou] for ii in list_of_results_per_patient]
+    #            list_of_results_per_patient = pool.map(merge_2D_to_3D_preds_per_patient, mp_inputs, chunksize=1)
+    #            pool.close()
+    #            pool.join()
+    #        print('list_of_results_per_patient',len(list_of_results_per_patient))
+    #        print(list_of_results_per_patient[0][1])
+    #        print(list_of_results_per_patient[1][1])
+
+    #        return list_of_results_per_patient,testing_epoch
 
 
     def load_saved_predictions(self, apply_wbc=False):
@@ -308,67 +427,67 @@ class Predictor:
         results_list = [self.spatial_tiling_forward(batch, patch_crops)]
         org_img_shape = batch['original_img_shape']
 
-        if self.mode == 'test' and self.cf.test_aug:
+        #if self.mode == 'test' and self.cf.test_aug:
 
-            if self.patched_patient:
-                # apply mirror transformations to patch-crop coordinates, for correct tiling in spatial_tiling method.
-                mirrored_patch_crops = get_mirrored_patch_crops(patch_crops, batch['original_img_shape'])
-            else:
-                mirrored_patch_crops = [None] * 3
+        #    if self.patched_patient:
+        #        # apply mirror transformations to patch-crop coordinates, for correct tiling in spatial_tiling method.
+        #        mirrored_patch_crops = get_mirrored_patch_crops(patch_crops, batch['original_img_shape'])
+        #    else:
+        #        mirrored_patch_crops = [None] * 3
 
-            img = np.copy(batch['data'])
+        #    img = np.copy(batch['data'])
 
-            # first mirroring: y-axis.
-            batch['data'] = np.flip(img, axis=2).copy()
-            chunk_dict = self.spatial_tiling_forward(batch, mirrored_patch_crops[0], n_aug='1')
-            # re-transform coordinates.
-            for ix in range(len(chunk_dict['boxes'])):
-                for boxix in range(len(chunk_dict['boxes'][ix])):
-                    coords = chunk_dict['boxes'][ix][boxix]['box_coords'].copy()
-                    coords[0] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][2]
-                    coords[2] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][0]
-                    assert coords[2] >= coords[0], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-                    assert coords[3] >= coords[1], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-                    chunk_dict['boxes'][ix][boxix]['box_coords'] = coords
-            # re-transform segmentation predictions.
-            chunk_dict['seg_preds'] = np.flip(chunk_dict['seg_preds'], axis=2)
-            results_list.append(chunk_dict)
+        #    # first mirroring: y-axis.
+        #    batch['data'] = np.flip(img, axis=2).copy()
+        #    chunk_dict = self.spatial_tiling_forward(batch, mirrored_patch_crops[0], n_aug='1')
+        #    # re-transform coordinates.
+        #    for ix in range(len(chunk_dict['boxes'])):
+        #        for boxix in range(len(chunk_dict['boxes'][ix])):
+        #            coords = chunk_dict['boxes'][ix][boxix]['box_coords'].copy()
+        #            coords[0] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][2]
+        #            coords[2] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][0]
+        #            assert coords[2] >= coords[0], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
+        #            assert coords[3] >= coords[1], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
+        #            chunk_dict['boxes'][ix][boxix]['box_coords'] = coords
+        #    # re-transform segmentation predictions.
+        #    chunk_dict['seg_preds'] = np.flip(chunk_dict['seg_preds'], axis=2)
+        #    results_list.append(chunk_dict)
 
-            # second mirroring: x-axis.
-            batch['data'] = np.flip(img, axis=3).copy()
-            chunk_dict = self.spatial_tiling_forward(batch, mirrored_patch_crops[1], n_aug='2')
-            # re-transform coordinates.
-            for ix in range(len(chunk_dict['boxes'])):
-                for boxix in range(len(chunk_dict['boxes'][ix])):
-                    coords = chunk_dict['boxes'][ix][boxix]['box_coords'].copy()
-                    coords[1] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][3]
-                    coords[3] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][1]
-                    assert coords[2] >= coords[0], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-                    assert coords[3] >= coords[1], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-                    chunk_dict['boxes'][ix][boxix]['box_coords'] = coords
-            # re-transform segmentation predictions.
-            chunk_dict['seg_preds'] = np.flip(chunk_dict['seg_preds'], axis=3)
-            results_list.append(chunk_dict)
+        #    # second mirroring: x-axis.
+        #    batch['data'] = np.flip(img, axis=3).copy()
+        #    chunk_dict = self.spatial_tiling_forward(batch, mirrored_patch_crops[1], n_aug='2')
+        #    # re-transform coordinates.
+        #    for ix in range(len(chunk_dict['boxes'])):
+        #        for boxix in range(len(chunk_dict['boxes'][ix])):
+        #            coords = chunk_dict['boxes'][ix][boxix]['box_coords'].copy()
+        #            coords[1] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][3]
+        #            coords[3] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][1]
+        #            assert coords[2] >= coords[0], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
+        #            assert coords[3] >= coords[1], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
+        #            chunk_dict['boxes'][ix][boxix]['box_coords'] = coords
+        #    # re-transform segmentation predictions.
+        #    chunk_dict['seg_preds'] = np.flip(chunk_dict['seg_preds'], axis=3)
+        #    results_list.append(chunk_dict)
 
-            # third mirroring: y-axis and x-axis.
-            batch['data'] = np.flip(np.flip(img, axis=2), axis=3).copy()
-            chunk_dict = self.spatial_tiling_forward(batch, mirrored_patch_crops[2], n_aug='3')
-            # re-transform coordinates.
-            for ix in range(len(chunk_dict['boxes'])):
-                for boxix in range(len(chunk_dict['boxes'][ix])):
-                    coords = chunk_dict['boxes'][ix][boxix]['box_coords'].copy()
-                    coords[0] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][2]
-                    coords[2] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][0]
-                    coords[1] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][3]
-                    coords[3] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][1]
-                    assert coords[2] >= coords[0], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-                    assert coords[3] >= coords[1], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-                    chunk_dict['boxes'][ix][boxix]['box_coords'] = coords
-            # re-transform segmentation predictions.
-            chunk_dict['seg_preds'] = np.flip(np.flip(chunk_dict['seg_preds'], axis=2), axis=3).copy()
-            results_list.append(chunk_dict)
+        #    # third mirroring: y-axis and x-axis.
+        #    batch['data'] = np.flip(np.flip(img, axis=2), axis=3).copy()
+        #    chunk_dict = self.spatial_tiling_forward(batch, mirrored_patch_crops[2], n_aug='3')
+        #    # re-transform coordinates.
+        #    for ix in range(len(chunk_dict['boxes'])):
+        #        for boxix in range(len(chunk_dict['boxes'][ix])):
+        #            coords = chunk_dict['boxes'][ix][boxix]['box_coords'].copy()
+        #            coords[0] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][2]
+        #            coords[2] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][0]
+        #            coords[1] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][3]
+        #            coords[3] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][1]
+        #            assert coords[2] >= coords[0], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
+        #            assert coords[3] >= coords[1], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
+        #            chunk_dict['boxes'][ix][boxix]['box_coords'] = coords
+        #    # re-transform segmentation predictions.
+        #    chunk_dict['seg_preds'] = np.flip(np.flip(chunk_dict['seg_preds'], axis=2), axis=3).copy()
+        #    results_list.append(chunk_dict)
 
-            batch['data'] = img
+        #    batch['data'] = img
 
         # aggregate all boxes/seg_preds per batch element from data_aug predictions.
         results_dict = {}
@@ -379,6 +498,10 @@ class Predictor:
         if self.mode == 'val':
             results_dict['monitor_values'] = results_list[0]['monitor_values']
 
+        #print('in data_aug_forward',len(results_dict['boxes']))
+        #print('in data_aug_forward',len(results_dict['boxes'][0]))
+        #for k in results_dict['boxes'][0][0].keys():
+        #    print('k',k)
         return results_dict
 
 
@@ -466,7 +589,10 @@ class Predictor:
                     box['box_patch_center_factor'] = 1
                     box['box_n_overlaps'] = 1
                     box['patch_id'] = self.rank_ix + '_' + n_aug
-
+        #print('results_dict in spatial_tiling_forward',len(results_dict['boxes']))
+        #print('results_dict in spatial_tiling_forward',len(results_dict['boxes'][0]))
+        #for k in results_dict['boxes'][0][0].keys():
+        #    print('k',k)
         return results_dict
 
 

@@ -118,7 +118,7 @@ class DefaultConfigs:
         self.save_preds_to_csv = True
 
         # select a maximum number of patient cases to test. number or "all" for all
-        self.max_test_patients = 2#"all"
+        self.max_test_patients = "all"
 
         #########################
         #   MRCNN               #

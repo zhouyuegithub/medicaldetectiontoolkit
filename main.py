@@ -54,13 +54,15 @@ def train(logger):
     if cf.resume_to_checkpoint:#default: False
         starting_epoch = utils.load_checkpoint(cf.resume_to_checkpoint, net, optimizer)
         logger.info('resumed to checkpoint {} at epoch {}'.format(cf.resume_to_checkpoint, starting_epoch))
-
+        num_batch = starting_epoch * cf.num_train_batches+1
+        num_val = starting_epoch * cf.num_val_batches+1
+    else:
+        num_batch = 0#for show loss
+        num_val = 0
     logger.info('loading dataset and initializing batch generators...')
     batch_gen = data_loader.get_train_generators(cf, logger)
     #for k in batch_gen.keys():
     #    print('k in batch_gen are {}'.format(k))
-    num_batch = 0#for show loss
-    num_val = 0
     best_train_recall,best_val_recall = 0,0
     for epoch in range(starting_epoch, cf.num_epochs + 1):
 
@@ -107,7 +109,7 @@ def train(logger):
             writer.add_scalar('Train/mrcnn_bbox_loss',results_dict['monitor_losses']['mrcnn_bbox_loss'],num_batch)
             writer.add_scalar('Train/mrcnn_mask_loss',results_dict['monitor_losses']['mrcnn_mask_loss'],num_batch)
 
-            train_results_list.append([results_dict['boxes'], batch['pid']])
+            train_results_list.append([results_dict['boxes'], batch['pid']])#just gt and det
             monitor_metrics['train']['monitor_values'][epoch].append(results_dict['monitor_values'])
 
         print('*'*10 + 'finish epoch {}'.format(epoch))
@@ -169,17 +171,17 @@ def test(logger):
     """
     logger.info('starting testing model of fold {} in exp {}'.format(cf.fold, cf.exp_dir))
     net = model.net(cf, logger).cuda()
-    print('initial net for testing')
     test_predictor = Predictor(cf, net, logger, mode='test')
     test_evaluator = Evaluator(cf, logger, mode='test')
     batch_gen = data_loader.get_test_generator(cf, logger)
-    test_results_list = test_predictor.predict_test_set(batch_gen,cf, return_results=True)
-    save_test_image(test_results_list)
-    print('test_results_list',(test_results_list[0][0][0]))
-    print('test_results_list patient',(test_results_list[0][1]))
-    print('test_results_list',(test_results_list[1][0][0]))
-    print('test_results_list patient',(test_results_list[1][1]))
-    count = test_evaluator.evaluate_predictions(test_results_list,0,cf,flag = 'test')
+    test_results_list, testing_epoch= test_predictor.predict_test_set(batch_gen,cf, return_results=True)
+    #print('test_results_list',len(test_results_list))
+    #print('test_results_list',len(test_results_list[0][0][0]))
+    #print('test_results_list',(test_results_list[0][1]))
+    #print('test_results_list',len(test_results_list[1][0][0]))
+    #print('test_results_list',(test_results_list[1][1]))
+    save_test_image(test_results_list,testing_epoch,cf)
+    count = test_evaluator.evaluate_predictions(test_results_list,testing_epoch,cf,flag = 'test')
     print('tp {}, fp {}, fn {}'.format(count[0],count[1],count[2]))
     test_evaluator.score_test_df()
 
@@ -200,7 +202,7 @@ if __name__ == '__main__':
                         help='load configs from existing exp_dir instead of source dir. always done for testing, '
                              'but can be set to true to do the same for training. useful in job scheduler environment, '
                              'where source code might change before the job actually runs.')
-    parser.add_argument('--resume_to_checkpoint', type=str, default=None,
+    parser.add_argument('--resume_to_checkpoint', type=str, default='/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/0620_one/fold_1/last_checkpoint/',
                         help='if resuming to checkpoint, the desired fold still needs to be parsed via --folds.')
     parser.add_argument('--exp_source', type=str, default='experiments/abus_exp/',
                         help='specifies, from which source experiment to load configs and data_loader.')

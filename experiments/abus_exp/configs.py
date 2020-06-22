@@ -24,7 +24,7 @@ class configs(DefaultConfigs):
 
     def __init__(self, server_env=None):
 
-        self.gpu = '2'
+        self.gpu = '0'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
         #########################
         #    Preprocessing      #
@@ -86,7 +86,7 @@ class configs(DefaultConfigs):
         self.batch_sample_slack = 0.5#0.2
 
         # set 2D network to operate in 3D images.
-        self.merge_2D_to_3D_preds = True
+        self.merge_2D_to_3D_preds = False#True
 
         # feed +/- n neighbouring slices into channel dimension. set to None for no context.
         self.n_3D_context = None
@@ -110,10 +110,16 @@ class configs(DefaultConfigs):
         #########################
         #  Schedule / Selection #
         #########################
+        debug = 0 
+        if debug == 1:
+            self.num_epochs = 2 
+            self.num_train_batches = 2 if self.dim == 2 else 2 
+            self.batch_size = 20 if self.dim == 2 else 10 
+        else:
+            self.num_epochs = 300
+            self.num_train_batches = 200 if self.dim == 2 else 200 
+            self.batch_size = 20 if self.dim == 2 else 10 
 
-        self.num_epochs = 300
-        self.num_train_batches = 200 if self.dim == 2 else 200 
-        self.batch_size = 20 if self.dim == 2 else 10 
 
         self.do_validation = True
         # decide whether to validate on entire patient volumes (like testing) or sampled patches (like training)
@@ -122,7 +128,10 @@ class configs(DefaultConfigs):
         if self.val_mode == 'val_patient':
             self.max_val_patients = 50  # if 'None' iterates over entire val_set once.
         if self.val_mode == 'val_sampling':
-            self.num_val_batches = 20 
+            if debug == 1:
+                self.num_val_batches = 2
+            else:
+                self.num_val_batches = 20
 
         #########################
         #   Testing / Plotting  #
@@ -133,8 +142,12 @@ class configs(DefaultConfigs):
         self.test_n_epochs = 5
 
         # show image
-        self.show_train_images = 10 
-        self.show_val_images = 10
+        if debug == 1:
+            self.show_train_images = 1 
+            self.show_val_images = 1
+        else:
+            self.show_train_images = 10 
+            self.show_val_images = 10
 
         #select detected box score
         self.source_th = 0.1
@@ -300,9 +313,9 @@ class configs(DefaultConfigs):
         self.post_nms_rois_inference = 500
 
         # Final selection of detections (refine_detections)
-        self.model_max_instances_per_batch_element = 10 if self.dim == 2 else 30  # per batch element and class.
+        self.model_max_instances_per_batch_element = 10 if self.dim == 2 else 30  # per batch element and class. used in refinedetection after num3D
         self.detection_nms_threshold = 1e-5  # needs to be > 0, otherwise all predictions are one cluster.
-        self.model_min_confidence = 0.1
+        self.model_min_confidence = 0.1#select detection boxes
 
         if self.dim == 2:
             self.backbone_shapes = np.array(

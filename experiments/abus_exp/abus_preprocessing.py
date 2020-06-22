@@ -37,11 +37,12 @@ def aggregate_meta_info(exp_dir):
     print ("aggregated meta info to df with length", len(df))
 
 if __name__ == "__main__":
-    #img_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/image_dcm/'
-    #label_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/label_dcm/'
     img_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/newresize/image/'
     label_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/newresize/label/'
     save_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/abus_npy/'
+    img_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/roi/image/'
+    label_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/roi/label/'
+    save_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/abus_roi_npy/'
     #csvpth = '/shenlab/lab_stor6/yuezhou/ABUSdata/data_info/class_info.csv'
     #names, classes = readcsv(csvpth) 
     if not os.path.exists(save_path):
@@ -59,8 +60,8 @@ if __name__ == "__main__":
         label_array[label_array != 0] = 1
         fg_slices = [ii for ii in np.unique(np.argwhere(label_array != 0)[:, 0])]
 
-        #np.save(os.path.join(save_path, '{}_rois.npy'.format(pid)), label_array)
-        #np.save(os.path.join(save_path, '{}_img.npy'.format(pid)), img_array)
+        np.save(os.path.join(save_path, '{}_rois.npy'.format(pid)), label_array)
+        np.save(os.path.join(save_path, '{}_img.npy'.format(pid)), img_array)
         with open(os.path.join(save_path, 'meta_info_{}.pickle'.format(pid)), 'wb') as handle:
             #meta_info_dict = {'pid': pid, 'class_target': [int(this_class)+1], 'spacing': img.GetSpacing(), 'fg_slices': fg_slices}
             meta_info_dict = {'pid': pid, 'class_target': [1], 'spacing': img.GetSpacing(), 'fg_slices': fg_slices}

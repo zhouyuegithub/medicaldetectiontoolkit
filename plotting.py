@@ -21,8 +21,96 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 import os
 from copy import deepcopy
-def save_test_image(results_list):
-    print('in save_test_image')
+def save_test_image(results_list, epoch,cf,mode = 'test'):
+    for box_pid in results_list:
+        pid = box_pid[1]
+        boxes = box_pid[0][0]
+        img = np.load(cf.pp_test_data_path + pid + '_img.npy')
+        img = np.transpose(img,axes = (1,2,0))[np.newaxis]
+        data = np.transpose(img, axes=(3, 0, 1, 2))#128,1,64,128
+        seg = np.load(cf.pp_test_data_path + pid + '_rois.npy')
+        seg = np.transpose(seg,axes = (1,2,0))[np.newaxis]
+        seg = np.transpose(seg, axes=(3, 0, 1, 2))#128,1,64,128
+        gt_boxes = [box['box_coords'] for box in boxes if box['box_type'] == 'gt']
+        if len(gt_boxes) > 0:
+            center = int((gt_boxes[0][5]-gt_boxes[0][4])/2+gt_boxes[0][4])
+            z_cuts = [np.max((center - 5, 0)), np.min((center + 5, data.shape[0]))]#max len = 10
+        else:
+            z_cuts = [data.shape[0]//2 - 5, int(data.shape[0]//2 + np.min([5, data.shape[0]//2]))]
+        roi_results = [[] for _ in range(data.shape[0])] 
+        for box in boxes:#box is a list
+            b = box['box_coords']
+            # dismiss negative anchor slices.
+            slices = np.round(np.unique(np.clip(np.arange(b[4], b[5] + 1), 0, data.shape[0]-1)))
+            for s in slices:
+                roi_results[int(s)].append(box)
+                roi_results[int(s)][-1]['box_coords'] = b[:4]#change 3d box to 2d
+        roi_results = roi_results[z_cuts[0]: z_cuts[1]]#extract slices to show
+        data = data[z_cuts[0]: z_cuts[1]]
+        seg = seg[z_cuts[0]:z_cuts[1]]
+        pids = [pid] * data.shape[0]
+
+        show_arrays = np.concatenate([data, seg], axis=1).astype(float)#10,2,79,219
+        approx_figshape = (1 * show_arrays.shape[0], 1 * show_arrays.shape[1])
+        fig = plt.figure(figsize=approx_figshape)
+        gs = gridspec.GridSpec(show_arrays.shape[1] + 1, show_arrays.shape[0])
+        gs.update(wspace=0.1, hspace=0.1)
+        for b in range(show_arrays.shape[0]):#10(0...9)
+            for m in range(show_arrays.shape[1]):#4(0,1,2,3)
+                ax = plt.subplot(gs[m, b])
+                ax.axis('off')
+                if m < show_arrays.shape[1]:#the first row
+                    arr = show_arrays[b, m]#get image to be shown
+
+                if m < data.shape[1]:#the first row
+                    cmap = 'gray'
+                    vmin = None
+                    vmax = None
+                else:
+                    cmap = None
+                    vmin = 0
+                    vmax = 1#cf.num_seg_classes - 1
+
+                if m == 0:#the first row
+                    plt.title('{}'.format(pids[b][:10]), fontsize=8)
+
+                ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
+                if m >= (data.shape[1]):#second   
+                    for box in roi_results[b]:
+                        coords = box['box_coords']
+                        if box['box_type'] == 'det':
+                                # dont plot background preds or low confidence boxes.
+                            if box['box_pred_class_id'] > 0:# and box['box_score'] > cf.source_th:#detected box
+                                plot_text = True
+                                score = np.max(box['box_score'])
+                                score_text = '{}|{:.0f}'.format(box['box_pred_class_id'], score*100)
+                                score_font_size = 7
+                                text_color = 'w'
+                                text_x = coords[1] + 10*(box['box_pred_class_id'] -1) #avoid overlap of scores in plot.
+                                text_y = coords[2] + 5
+                            else:#background and small score don't show
+                                continue
+                        elif box['box_type'] == 'gt':
+                           plot_text = True
+                           score_text = int(box['box_label'])
+                           score_font_size = 7
+                           text_color = 'r'
+                           text_x = coords[1]
+                           text_y = coords[0] - 1
+                        color_var = 'extra_usage' if 'extra_usage' in list(box.keys()) else 'box_type'
+                        color = cf.box_color_palette[box[color_var]]
+                        ax.plot([coords[1], coords[3]], [coords[0], coords[0]], color=color, linewidth=1, alpha=1) # up
+                        ax.plot([coords[1], coords[3]], [coords[2], coords[2]], color=color, linewidth=1, alpha=1) # down
+                        ax.plot([coords[1], coords[1]], [coords[0], coords[2]], color=color, linewidth=1, alpha=1) # left
+                        ax.plot([coords[3], coords[3]], [coords[0], coords[2]], color=color, linewidth=1, alpha=1) # right
+                        if plot_text:
+                            ax.text(text_x, text_y, score_text, fontsize=score_font_size, color=text_color)
+        outfile = os.path.join(cf.plot_dir, 'pred_example_{}_{}_{}_{}.png'.format(mode,epoch,cf.fold,pid))
+        try:
+            plt.savefig(outfile)
+        except:
+            raise Warning('failed to save plot.')
+
 def save_monitor_valuse(cf,test_df,epoch,flag = 'val'):
     pth = cf.exp_dir
     filename = flag+'_{}'.format(epoch)+'.csv'
@@ -107,10 +195,10 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
             else:
                 cmap = None
                 vmin = 0
-                vmax = cf.num_seg_classes - 1
+                vmax = 1#cf.num_seg_classes - 1
 
             if m == 0:#the first row
-                plt.title('{}'.format(pids[b][:10]), fontsize=20)
+                plt.title('{}'.format(pids[b][:10]), fontsize=8)
 
             ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
             if m >= (data.shape[1]):#second third forth rows

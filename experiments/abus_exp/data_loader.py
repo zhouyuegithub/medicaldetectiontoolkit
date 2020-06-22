@@ -104,7 +104,8 @@ def get_test_generator(cf, logger):
         pp_name = None
         with open(os.path.join(cf.exp_dir, 'fold_ids.pickle'), 'rb') as handle:
             fold_list = pickle.load(handle)
-        _, _, test_ix, _ = fold_list[cf.fold]
+        #_, _, test_ix, _ = fold_list[cf.fold]
+        _, test_ix,_, _ = fold_list[cf.fold]
         # warnings.warn('WARNING: using validation set for testing!!!')
 
     test_data = load_dataset(cf, logger, test_ix, pp_data_path=cf.pp_test_data_path, pp_name=pp_name)
@@ -216,7 +217,6 @@ def create_data_gen_pipeline(patient_data, cf, is_training=True):
         my_transforms.append(CenterCropTransform(crop_size=cf.patch_size[:cf.dim]))
 
     #print('transform end ---')
-    print('class_specific_seg_flag',cf.class_specific_seg_flag)
     my_transforms.append(ConvertSegToBoundingBoxCoordinates(cf.dim, get_rois_from_seg_flag=False, class_specific_seg_flag=cf.class_specific_seg_flag))
     all_transforms = Compose(my_transforms)
     # multithreaded_generator = SingleThreadedAugmenter(data_gen, all_transforms)
@@ -389,14 +389,13 @@ class PatientBatchIterator(SlimDataLoaderBase):
         if self.cf.dim == 3 or self.cf.merge_2D_to_3D_preds:#default True
             out_data = data[np.newaxis]
             out_seg = seg[np.newaxis, np.newaxis]
-            #print('outdata size',out_data.shape)
+            print('outdata size',out_data.shape)
             #print('outseg size',out_seg.shape)
             out_targets = batch_class_targets
             #print('out_targets',out_targets)
 
             batch_3D = {'data': out_data, 'seg': out_seg, 'class_target': out_targets, 'pid': pid}
             converter = ConvertSegToBoundingBoxCoordinates(dim=3, get_rois_from_seg_flag=False, class_specific_seg_flag=False)#default false
-            #print('batch_3D',**batch_3D)
             batch_3D = converter(**batch_3D)
             batch_3D.update({'patient_bb_target': batch_3D['bb_target'],
                                   'patient_roi_labels': batch_3D['roi_labels'],
@@ -435,7 +434,8 @@ class PatientBatchIterator(SlimDataLoaderBase):
         # crop patient-volume to patches of patch_size used during training. stack patches up in batch dimension.
         # in this case, 2D is treated as a special case of 3D with patch_size[z] = 1.
         if np.any([data.shape[dim + 1] > self.patch_size[dim] for dim in range(3)]):
-            patch_crop_coords_list = dutils.get_patch_crop_coords(data[0], self.patch_size)
+            patch_crop_coords_list = dutils.get_patch_crop_coords(data[0], self.patch_size,min_overlap = 80)
+            print('patch_crop_coords_list',len(patch_crop_coords_list))
             new_img_batch, new_seg_batch, new_class_targets_batch = [], [], []
 
             for cix, c in enumerate(patch_crop_coords_list):
@@ -457,6 +457,7 @@ class PatientBatchIterator(SlimDataLoaderBase):
             data = np.array(new_img_batch) # (n_patches, c, x, y, z)
             seg = np.array(new_seg_batch)[:, np.newaxis]  # (n_patches, 1, x, y, z)
             batch_class_targets = np.repeat(batch_class_targets, len(patch_crop_coords_list), axis=0)
+            print('data',data.shape)
 
             if self.cf.dim == 2:
                 if self.cf.n_3D_context is not None:
@@ -466,9 +467,9 @@ class PatientBatchIterator(SlimDataLoaderBase):
                     data = data[..., 0]
                 seg = seg[..., 0]
 
-            patch_batch = {'data': data, 'seg': seg, 'class_target': batch_class_targets, 'pid': pid}
+            patch_batch = {'data': data, 'seg': seg, 'class_target': batch_class_targets, 'pid': pid}#classtarget is len == cropsize
             patch_batch['patch_crop_coords'] = np.array(patch_crop_coords_list)
-            patch_batch['patient_bb_target'] = patient_batch['patient_bb_target']
+            patch_batch['patient_bb_target'] = patient_batch['patient_bb_target']#gt box
             patch_batch['patient_roi_labels'] = patient_batch['patient_roi_labels']
             patch_batch['original_img_shape'] = patient_batch['original_img_shape']
 
@@ -479,8 +480,13 @@ class PatientBatchIterator(SlimDataLoaderBase):
         self.patient_ix += 1
         if self.patient_ix == len(self.dataset_pids):
             self.patient_ix = 0
-        #    if k == 'data':
-        #        print('data',v.shape)#18,1,64,128,128
+        if out_batch['patient_roi_labels'][0][0] > 0:
+            out_batch['patient_roi_labels'][0] = [1]
+
+        for k in out_batch.keys():
+            print(k)
+            if k == 'patch_crop_coords':
+                print(out_batch[k])
         return out_batch
 
 

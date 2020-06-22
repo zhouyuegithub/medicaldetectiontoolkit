@@ -214,7 +214,7 @@ class ModelSelector:
 
 def load_checkpoint(checkpoint_path, net, optimizer):
 
-    checkpoint_params = torch.load(os.path.join(checkpoint_path, 'params_1_0.0.pth'))
+    checkpoint_params = torch.load(os.path.join(checkpoint_path, 'params.pth'))
     net.load_state_dict(checkpoint_params['state_dict'])
     optimizer.load_state_dict(checkpoint_params['optimizer'])
     #with open(os.path.join(checkpoint_path, 'monitor_metrics.pickle'), 'rb') as handle:
