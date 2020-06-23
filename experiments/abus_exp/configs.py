@@ -24,7 +24,7 @@ class configs(DefaultConfigs):
 
     def __init__(self, server_env=None):
 
-        self.gpu = '0'
+        self.gpu = '6'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
         #########################
         #    Preprocessing      #
@@ -110,11 +110,11 @@ class configs(DefaultConfigs):
         #########################
         #  Schedule / Selection #
         #########################
-        debug = 0 
+        debug = 1 
         if debug == 1:
             self.num_epochs = 2 
             self.num_train_batches = 2 if self.dim == 2 else 2 
-            self.batch_size = 20 if self.dim == 2 else 10 
+            self.batch_size = 20 if self.dim == 2 else 2 
         else:
             self.num_epochs = 300
             self.num_train_batches = 200 if self.dim == 2 else 200 
@@ -252,7 +252,6 @@ class configs(DefaultConfigs):
 
         # number of classes for head networks: n_foreground_classes + 1 (background)
         self.head_classes = 2 
-        #print('mrcnn head_classes: ', self.head_classes)
 
         # seg_classes hier refers to the first stage classifier (RPN)
         self.num_seg_classes = 1  # foreground vs. background
@@ -266,7 +265,8 @@ class configs(DefaultConfigs):
         self.rpn_anchor_scales = {'xy': [[8], [16], [32], [64]], 'z': [[2], [4], [8], [16]]}
 
         # choose which pyramid levels to extract features from: P2: 0, P3: 1, P4: 2, P5: 3.
-        self.pyramid_levels = [0, 1, 2, 3]
+        #self.pyramid_levels = [0, 1, 2, 3]
+        self.pyramid_levels = [1]
 
         # number of feature maps in rpn. typically lowered in 3D to save gpu-memory.
         self.n_rpn_features = 512 if self.dim == 2 else 128

@@ -434,7 +434,7 @@ class PatientBatchIterator(SlimDataLoaderBase):
         # crop patient-volume to patches of patch_size used during training. stack patches up in batch dimension.
         # in this case, 2D is treated as a special case of 3D with patch_size[z] = 1.
         if np.any([data.shape[dim + 1] > self.patch_size[dim] for dim in range(3)]):
-            patch_crop_coords_list = dutils.get_patch_crop_coords(data[0], self.patch_size,min_overlap = 80)
+            patch_crop_coords_list = dutils.get_patch_crop_coords(data[0], self.patch_size,min_overlap = 500)
             print('patch_crop_coords_list',len(patch_crop_coords_list))
             new_img_batch, new_seg_batch, new_class_targets_batch = [], [], []
 

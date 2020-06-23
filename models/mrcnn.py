@@ -123,13 +123,12 @@ class Classifier(nn.Module):
         :return: mrcnn_class_logits (n_proposals, n_head_classes)
         :return: mrcnn_bbox (n_proposals, n_head_classes, 2 * dim) predicted corrections to be applied to proposals for refinement.
         """
-        #print('in classifier')
-        #print('x',x.shape)
-        #print('before roi_align',len(x))
-        #for xx in x:
-        #    print('x',xx.shape)
+        print('in classifier')
+        print('before roi_align',len(x))
+        for xx in x:
+            print('x',xx.shape)
         x = pyramid_roi_align(x, rois, self.pool_size, self.pyramid_levels, self.dim)
-        #print('after roi_align',x.shape)
+        print('after roi_align',x.shape)
         x = self.conv1(x)
         #print('after conv1',x.shape)
         x = self.conv2(x)
@@ -139,8 +138,8 @@ class Classifier(nn.Module):
         mrcnn_class_logits = self.linear_class(x)
         mrcnn_bbox = self.linear_bbox(x)
         mrcnn_bbox = mrcnn_bbox.view(mrcnn_bbox.size()[0], -1, self.dim * 2)
-        #print('mrcnn_class_logits',mrcnn_class_logits.shape)
-        #print('mrcnn_bbox',mrcnn_bbox.shape)
+        print('mrcnn_class_logits',mrcnn_class_logits.shape)
+        print('mrcnn_bbox',mrcnn_bbox.shape)
         return [mrcnn_class_logits, mrcnn_bbox]
 
 
@@ -674,9 +673,9 @@ def refine_detections(rois, probs, deltas, batch_ixs, cf):
     :return: result: (n_final_detections, (y1, x1, y2, x2, (z1), (z2), batch_ix, pred_class_id, pred_score))
     """
     # class IDs per ROI. Since scores of all classes are of interest (not just max class), all are kept at this point.
-    #print('in refine_detections')
-    #print('rois',rois.shape)
-    #print('probs',probs.shape)
+    print('in refine_detections')
+    print('rois',rois.shape)
+    print('probs',probs.shape)
     #print('deltas',deltas.shape)
     #print('batch_ixs',batch_ixs.shape)
     class_ids = []
@@ -1067,7 +1066,7 @@ class net(nn.Module):
         batch_ixs = torch.from_numpy(np.repeat(np.arange(batch_rpn_rois.shape[0]), batch_rpn_rois.shape[1])).float().cuda()
         rpn_rois = batch_rpn_rois.view(-1, batch_rpn_rois.shape[2])#from (8,75,6) to (600,6)
         self.rpn_rois_batch_info = torch.cat((rpn_rois, batch_ixs.unsqueeze(1)), dim=1)#normalize rpnrois with batch ix(600,7)
-
+        print('rpn_rois_batch_info',self.rpn_rois_batch_info.shape)
         # this is the first of two forward passes in the second stage, where no activations are stored for backprop.
         # here, all proposals are forwarded (with virtual_batch_size = batch_size * post_nms_rois.)
         # for inference/monitoring as well as sampling of rois for the loss functions.
@@ -1076,15 +1075,18 @@ class net(nn.Module):
         class_logits_list, bboxes_list = [], []
         with torch.no_grad():
             for chunk in chunked_rpn_rois:
+                print('chunk',chunk.shape)
                 chunk_class_logits, chunk_bboxes = self.classifier(self.mrcnn_feature_maps, chunk)
+                print('chunk_class_logits',chunk_class_logits.shape)
                 #return [mrcnn_class_logits, mrcnn_bbox]
                 class_logits_list.append(chunk_class_logits)
                 bboxes_list.append(chunk_bboxes)
         batch_mrcnn_class_logits = torch.cat(class_logits_list, 0)
+        print('batch_mrcnn_class_logits',batch_mrcnn_class_logits.shape)
         batch_mrcnn_bbox = torch.cat(bboxes_list, 0)
         self.batch_mrcnn_class_scores = F.softmax(batch_mrcnn_class_logits, dim=1)
         #print('after classifier batch_mrcnn_bbox',batch_mrcnn_bbox.shape)
-        #print('after classifier batch_mrcnn_class_scores',self.batch_mrcnn_class_scores.shape)
+        print('after classifier batch_mrcnn_class_scores',self.batch_mrcnn_class_scores.shape)
         # refine classified proposals, filter and return final detections.
         detections = refine_detections(rpn_rois, self.batch_mrcnn_class_scores, batch_mrcnn_bbox, batch_ixs, self.cf, )
         # forward remaining detections through mask-head to generate corresponding masks.

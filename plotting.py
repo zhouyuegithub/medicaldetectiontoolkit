@@ -244,10 +244,10 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
                         ax.plot([coords[3], coords[3]], [coords[0], coords[2]], color=color, linewidth=1, alpha=1) # right
                         if plot_text:
                             ax.text(text_x, text_y, score_text, fontsize=score_font_size, color=text_color)
-    try:
-        plt.savefig(outfile)
-    except:
-        raise Warning('failed to save plot.')
+    #try:
+    #    plt.savefig(outfile)
+    #except:
+    #    raise Warning('failed to save plot.')
     return fig
 
 class TrainingPlot_2Panel():

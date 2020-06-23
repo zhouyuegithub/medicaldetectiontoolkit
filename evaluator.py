@@ -207,8 +207,8 @@ class Evaluator():
         self.test_df['det_type'] = df_list_type
         self.test_df['fold'] = self.cf.fold
         self.test_df['match_iou'] = df_list_match_iou
-        csvpth = cf.exp_dir + '{}_epoch{}.csv'.format(flag,epoch)
-        self.test_df.to_csv(csvpth)
+        #csvpth = cf.exp_dir + '{}_epoch{}.csv'.format(flag,epoch)
+        #self.test_df.to_csv(csvpth)
         #if monitor_metrics is not None:
         #    _,monitor_metric = self.return_metrics(monitor_metrics)
         #    return monitor_metric,(TP_roi,FP_roi,FN_roi,TN_pat)
