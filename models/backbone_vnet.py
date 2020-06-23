@@ -111,8 +111,10 @@ class OutputTransition(nn.Module):
 
 
 class VNet(nn.Module):
-    def __init__(self, n_channels=1, n_classes=2, elu=True):
+    def __init__(self,cf, n_channels=1, n_classes=2, elu=True):
         super(VNet, self).__init__()
+        print('initial vnet for featuremap')
+        self.cf = cf
         self.in_tr = InputTransition(16, elu)
         self.down_tr32 = DownTransition(16, 1, elu)
         self.down_tr64 = DownTransition(32, 2, elu)
@@ -120,37 +122,38 @@ class VNet(nn.Module):
         self.down_tr256 = DownTransition(128, 2, elu, dropout=True)
         self.up_tr256 = UpTransition(256, 256, 2, elu, dropout=True)
         self.up_tr128 = UpTransition(256, 128, 2, elu, dropout=True)
-        self.up_tr64 = UpTransition(128, 64, 1, elu)
-        self.up_tr32 = UpTransition(64, 32, 1, elu)
-        self.out_tr = OutputTransition(32, elu)
+        #self.up_tr64 = UpTransition(128, 64, 1, elu)
+        #self.up_tr32 = UpTransition(64, 32, 1, elu)
+        #self.out_tr = OutputTransition(32, elu)
 
     def forward(self, x):
         out16 = self.in_tr(x)
-        print('out16',out16.shape)
+        #print('out16',out16.shape)
         out32 = self.down_tr32(out16)
-        print('out32',out32.shape)
+        #print('out32',out32.shape)
         out64 = self.down_tr64(out32)
-        print('out64',out64.shape)
+        #print('out64',out64.shape)
         out128 = self.down_tr128(out64)
-        print('out128',out128.shape)
+        #print('out128',out128.shape)
         out256 = self.down_tr256(out128)
-        print('out256',out256.shape)
-        out = self.up_tr256(out256, out128)
-        print('out',out.shape)
-        out = self.up_tr128(out, out64)
-        print('out',out.shape)
-        out = self.up_tr64(out, out32)
-        print('out',out.shape)
-        out = self.up_tr32(out, out16)
-        print('out',out.shape)
-        out = self.out_tr(out)
-        print('out',out.shape)
-        return out
+        #print('out256',out256.shape)
+        #out = self.up_tr256(out256, out128)
+        #print('out',out.shape)
+        #out = self.up_tr128(out, out64)
+        #print('out',out.shape)
+        output = []
+        output.append(out256)
+        return output 
+        #out = self.up_tr64(out, out32)
+        #print('out',out.shape)
+        #out = self.up_tr32(out, out16)
+        #print('out',out.shape)
+        #out = self.out_tr(out)
+        #print('out',out.shape)
+        #return out
 if __name__ == '__main__':
     model = VNet(1,2)
     model.eval()
     image = torch.autograd.Variable(torch.rand(8,1,128,64,128))
-    print('input image',image.shape)
     with torch.no_grad():
-        segoutput = model(image)
-    print('segoutput',segoutput.shape)
+        featuremap = model(image)

@@ -297,6 +297,7 @@ def generate_pyramid_anchors(logger, cf):
     logger.info("feature map shapes: {}".format(feature_shapes))
     logger.info("anchor scales: {}".format(scales))
     logger.info("anchor ratios: {}".format(ratios))
+    logger.info('pyramid_levels:{}'.format(pyramid_levels))
 
     expected_anchors = [np.prod(feature_shapes[ii]) * len(ratios) * len(scales['xy'][ii]) for ii in pyramid_levels]#total anchor number
 

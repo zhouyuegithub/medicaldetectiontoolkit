@@ -27,6 +27,7 @@ from predictor import Predictor
 from plotting import plot_batch_prediction, save_monitor_valuse,save_test_image
 from tensorboardX import SummaryWriter
 from utils.exp_utils import save_models
+import pickle
 
 def train(logger):
     """
@@ -49,14 +50,19 @@ def train(logger):
     starting_epoch = 1
 
     # prepare monitoring
-    monitor_metrics, TrainingPlot = utils.prepare_monitoring(cf)
+    #monitor_metrics, TrainingPlot = utils.prepare_monitoring(cf)
     #print('monitor_metrics',monitor_metrics)
     if cf.resume_to_checkpoint:#default: False
+        best_epoch = np.load(cf.resume_to_checkpoint + 'epoch_ranking.npy')[0] 
+        df = open(cf.resume_to_checkpoint+'monitor_metrics.pickle','rb')
+        monitor_metrics = pickle.load(df)
+        df.close()
         starting_epoch = utils.load_checkpoint(cf.resume_to_checkpoint, net, optimizer)
         logger.info('resumed to checkpoint {} at epoch {}'.format(cf.resume_to_checkpoint, starting_epoch))
         num_batch = starting_epoch * cf.num_train_batches+1
         num_val = starting_epoch * cf.num_val_batches+1
     else:
+        monitor_metrics = utils.prepare_monitoring(cf)
         num_batch = 0#for show loss
         num_val = 0
     logger.info('loading dataset and initializing batch generators...')
@@ -193,7 +199,7 @@ if __name__ == '__main__':
                         help='one out of: train / test / train_test / analysis / create_exp')
     parser.add_argument('-f','--folds', nargs='+', type=int, default=[1],
                         help='None runs over all folds in CV. otherwise specify list of folds.')
-    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor4/yuezhou/mrcnn/debug_vf/',
+    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor4/yuezhou/mrcnn/0623_vnetfeature/',
                         help='path to experiment dir. will be created if non existent.')
     parser.add_argument('--server_env', default=False, action='store_true',
                         help='change IO settings to deploy models on a cluster.')

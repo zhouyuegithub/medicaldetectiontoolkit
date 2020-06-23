@@ -171,7 +171,7 @@ class ModelSelector:
         # ranking of epochs according to model_selection_criterion
         epoch_ranking = np.argsort(epochs_scores)[::-1] + 1 #epochs start at 1
         # if set in configs, epochs < min_save_thresh are discarded from saving process.
-        epoch_ranking = epoch_ranking[epoch_ranking >= self.cf.min_save_thresh]
+        epoch_ranking = epoch_ranking[epoch_ranking >= self.cf.min_save_thresh]#0
         #print('epoch_ranking',epoch_ranking)
         # check if current epoch is among the top-k epchs.
         if epoch in epoch_ranking[:self.cf.save_n_models]:
@@ -254,10 +254,10 @@ def prepare_monitoring(cf):
     metrics['val']['monitor_values'] = [[] for _ in range(cf.num_epochs + 1)]
 
     # generate isntance of monitor plot class.
-    TrainingPlot = plotting.TrainingPlot_2Panel(cf)
+    #TrainingPlot = plotting.TrainingPlot_2Panel(cf)
 
-    return metrics, TrainingPlot
-
+    #return metrics, TrainingPlot
+    return metrics
 
 
 def create_csv_output(results_list, cf, logger):

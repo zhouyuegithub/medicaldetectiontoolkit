@@ -24,7 +24,7 @@ class configs(DefaultConfigs):
 
     def __init__(self, server_env=None):
 
-        self.gpu = '6'
+        self.gpu = '0'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
         #########################
         #    Preprocessing      #
@@ -98,8 +98,12 @@ class configs(DefaultConfigs):
         #      Architecture      #
         #########################
 
+        self.backbone_path = 'models/backbone_vnet.py'
         self.start_filts = 48 if self.dim == 2 else 18
-        self.end_filts = self.start_filts * 4 if self.dim == 2 else self.start_filts * 2
+        if 'vnet' in self.backbone_path:
+            self.end_filts = 256
+        if 'fpn' in self.backbone_path:
+            self.end_filts = self.start_filts * 4 if self.dim == 2 else self.start_filts * 2
         self.res_architecture = 'resnet50' # 'resnet101' , 'resnet50'
         self.norm = None # one of None, 'instance_norm', 'batch_norm'
         self.weight_decay = 0
@@ -110,7 +114,7 @@ class configs(DefaultConfigs):
         #########################
         #  Schedule / Selection #
         #########################
-        debug = 1 
+        debug = 0 
         if debug == 1:
             self.num_epochs = 2 
             self.num_train_batches = 2 if self.dim == 2 else 2 
@@ -118,7 +122,7 @@ class configs(DefaultConfigs):
         else:
             self.num_epochs = 300
             self.num_train_batches = 200 if self.dim == 2 else 200 
-            self.batch_size = 20 if self.dim == 2 else 10 
+            self.batch_size = 20 if self.dim == 2 else 2 
 
 
         self.do_validation = True
@@ -258,15 +262,17 @@ class configs(DefaultConfigs):
 
         # feature map strides per pyramid level are inferred from architecture.
         #self.backbone_strides = {'xy': [4, 8, 16, 32], 'z': [1, 2, 4, 8]}
-        self.backbone_strides = {'xy': [4, 8, 16, 32], 'z': [4 ,8 ,16 ,32]}
-
+        if 'fpn' in self.backbone_path:
+            self.backbone_strides = {'xy': [4, 8, 16, 32], 'z': [4 ,8 ,16 ,32]}
+        if 'vnet' in self.backbone_path:
+            self.backbone_strides = {'xy':[8],'z':[8]}
         # anchor scales are chosen according to expected object sizes in data set. Default uses only one anchor scale
         # per pyramid level. (outer list are pyramid levels (corresponding to BACKBONE_STRIDES), inner list are scales per level.)
         self.rpn_anchor_scales = {'xy': [[8], [16], [32], [64]], 'z': [[2], [4], [8], [16]]}
 
         # choose which pyramid levels to extract features from: P2: 0, P3: 1, P4: 2, P5: 3.
         #self.pyramid_levels = [0, 1, 2, 3]
-        self.pyramid_levels = [1]
+        self.pyramid_levels = [0]
 
         # number of feature maps in rpn. typically lowered in 3D to save gpu-memory.
         self.n_rpn_features = 512 if self.dim == 2 else 128
@@ -323,12 +329,15 @@ class configs(DefaultConfigs):
                   int(np.ceil(self.patch_size[1] / stride))]
                  for stride in self.backbone_strides['xy']])
         else:
-            self.backbone_shapes = np.array(
-                [[int(np.ceil(self.patch_size[0] / stride)),
-                  int(np.ceil(self.patch_size[1] / stride)),
-                  int(np.ceil(self.patch_size[2] / stride_z))]
-                 for stride, stride_z in zip(self.backbone_strides['xy'], self.backbone_strides['z']
+            if 'fpn' in self.backbone_path:
+                self.backbone_shapes = np.array(
+                    [[int(np.ceil(self.patch_size[0] / stride)),
+                      int(np.ceil(self.patch_size[1] / stride)),
+                      int(np.ceil(self.patch_size[2] / stride_z))]
+                     for stride, stride_z in zip(self.backbone_strides['xy'], self.backbone_strides['z']
                                              )])
+            if 'vnet' in self.backbone_path:
+                self.backbone_shapes = np.array([[4,8,8]])
 
         if self.model == 'ufrcnn':
             self.operate_stride1 = False#True

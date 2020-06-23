@@ -32,7 +32,7 @@ class DefaultConfigs:
         self.select_prototype_subset = None
 
         # some default paths.
-        self.backbone_path = 'models/backbone.py'
+        #self.backbone_path = 'models/backbone_vnet.py'
         self.source_dir = os.path.dirname(os.path.realpath(__file__)) #current dir.
         self.input_df_name = 'info_df.pickle'
         self.model_path = 'models/{}.py'.format(self.model)
