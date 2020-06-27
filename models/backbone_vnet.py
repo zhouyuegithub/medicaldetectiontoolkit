@@ -51,10 +51,13 @@ class InputTransition(nn.Module):
 
 
 class DownTransition(nn.Module):
-    def __init__(self, inChans, nConvs, elu, dropout=False):
+    def __init__(self, inChans, nConvs, elu, dropout=False, dilation = False):
         super(DownTransition, self).__init__()
         outChans = 2*inChans
-        self.down_conv = nn.Conv3d(inChans, outChans, kernel_size=2, stride=2)
+        if dilation == True:
+            self.down_conv = nn.Conv3d(inChans, outChans, kernel_size=2, stride=2, dilation = 2)
+        else:
+            self.down_conv = nn.Conv3d(inChans, outChans, kernel_size=2, stride=2)
         self.bn1 = nn.BatchNorm3d(outChans)
         self.do1 = passthrough
         self.relu1 = ELUCons(elu, outChans)
@@ -72,9 +75,12 @@ class DownTransition(nn.Module):
 
 
 class UpTransition(nn.Module):
-    def __init__(self, inChans, outChans, nConvs, elu, dropout=False):
+    def __init__(self, inChans, outChans, nConvs, elu, dropout=False, dilation = False):
         super(UpTransition, self).__init__()
-        self.up_conv = nn.ConvTranspose3d(inChans, outChans // 2, kernel_size=2, stride=2)
+        if dilation == True:
+            self.up_conv = nn.ConvTranspose3d(inChans, outChans // 2, kernel_size=2, stride=2, dilation = 2)
+        else:
+            self.up_conv = nn.ConvTranspose3d(inChans, outChans // 2, kernel_size=2, stride=2)
         self.bn1 = nn.BatchNorm3d(outChans // 2)
         self.do1 = passthrough
         self.do2 = nn.Dropout3d()
@@ -119,38 +125,36 @@ class VNet(nn.Module):
         self.down_tr32 = DownTransition(16, 1, elu)
         self.down_tr64 = DownTransition(32, 2, elu)
         self.down_tr128 = DownTransition(64, 3, elu, dropout=True)
-        self.down_tr256 = DownTransition(128, 2, elu, dropout=True)
-        self.up_tr256 = UpTransition(256, 256, 2, elu, dropout=True)
+        self.down_tr256 = DownTransition(128, 2, elu, dropout=True)#, dilation=True)
+        self.up_tr256 = UpTransition(256, 256, 2, elu, dropout=True)#, dilation=True)
         self.up_tr128 = UpTransition(256, 128, 2, elu, dropout=True)
-        #self.up_tr64 = UpTransition(128, 64, 1, elu)
-        #self.up_tr32 = UpTransition(64, 32, 1, elu)
-        #self.out_tr = OutputTransition(32, elu)
+        self.up_tr64 = UpTransition(128, 64, 1, elu)
+        self.up_tr32 = UpTransition(64, 32, 1, elu)
+        self.out_tr = OutputTransition(32, elu)
 
     def forward(self, x):
         out16 = self.in_tr(x)
-        #print('out16',out16.shape)
         out32 = self.down_tr32(out16)
-        #print('out32',out32.shape)
         out64 = self.down_tr64(out32)
-        #print('out64',out64.shape)
         out128 = self.down_tr128(out64)
         #print('out128',out128.shape)
         out256 = self.down_tr256(out128)
         #print('out256',out256.shape)
-        #out = self.up_tr256(out256, out128)
-        #print('out',out.shape)
-        #out = self.up_tr128(out, out64)
-        #print('out',out.shape)
+        outup256 = self.up_tr256(out256, out128)
+        outup128 = self.up_tr128(outup256, out64)
+        outup64 = self.up_tr64(outup128, out32)
+        outup32 = self.up_tr32(outup64, out16)
+        out16 = self.out_tr(outup32)
         output = []
+        output.append(outup32)
+        output.append(outup64)
+        output.append(outup128)
+        output.append(outup256)
         output.append(out256)
+        #for o in output:
+        #    print('features each level',o.shape)
         return output 
-        #out = self.up_tr64(out, out32)
-        #print('out',out.shape)
-        #out = self.up_tr32(out, out16)
-        #print('out',out.shape)
-        #out = self.out_tr(out)
-        #print('out',out.shape)
-        #return out
+
 if __name__ == '__main__':
     model = VNet(1,2)
     model.eval()

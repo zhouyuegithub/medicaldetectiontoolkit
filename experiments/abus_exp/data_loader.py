@@ -104,8 +104,9 @@ def get_test_generator(cf, logger):
         pp_name = None
         with open(os.path.join(cf.exp_dir, 'fold_ids.pickle'), 'rb') as handle:
             fold_list = pickle.load(handle)
-        #_, _, test_ix, _ = fold_list[cf.fold]
-        _, test_ix,_, _ = fold_list[cf.fold]
+        _, _, test_ix, _ = fold_list[cf.fold]
+        print('test_ix',test_ix)
+        #_, test_ix,_, _ = fold_list[cf.fold]
         # warnings.warn('WARNING: using validation set for testing!!!')
 
     test_data = load_dataset(cf, logger, test_ix, pp_data_path=cf.pp_test_data_path, pp_name=pp_name)
@@ -365,6 +366,7 @@ class PatientBatchIterator(SlimDataLoaderBase):
         self.patient_ix = 0
         self.dataset_pids = [v['pid'] for (k, v) in data.items()]
         self.patch_size = cf.patch_size
+        self.testing_patch_stride = cf.testing_patch_stride
         if len(self.patch_size) == 2:
             self.patch_size = self.patch_size + [1]
 
@@ -389,7 +391,7 @@ class PatientBatchIterator(SlimDataLoaderBase):
         if self.cf.dim == 3 or self.cf.merge_2D_to_3D_preds:#default True
             out_data = data[np.newaxis]
             out_seg = seg[np.newaxis, np.newaxis]
-            print('outdata size',out_data.shape)
+            #print('outdata size',out_data.shape)
             #print('outseg size',out_seg.shape)
             out_targets = batch_class_targets
             #print('out_targets',out_targets)
@@ -434,8 +436,9 @@ class PatientBatchIterator(SlimDataLoaderBase):
         # crop patient-volume to patches of patch_size used during training. stack patches up in batch dimension.
         # in this case, 2D is treated as a special case of 3D with patch_size[z] = 1.
         if np.any([data.shape[dim + 1] > self.patch_size[dim] for dim in range(3)]):
-            patch_crop_coords_list = dutils.get_patch_crop_coords(data[0], self.patch_size,min_overlap = 500)
-            print('patch_crop_coords_list',len(patch_crop_coords_list))
+            #patch_crop_coords_list = dutils.get_patch_crop_coords(data[0], self.patch_size,min_overlap = 500)
+            patch_crop_coords_list = dutils.get_patch_crop_coords_stride(data[0], self.patch_size,self.testing_patch_stride)
+            #print('patch_crop_coords_list',len(patch_crop_coords_list))
             new_img_batch, new_seg_batch, new_class_targets_batch = [], [], []
 
             for cix, c in enumerate(patch_crop_coords_list):
@@ -457,7 +460,7 @@ class PatientBatchIterator(SlimDataLoaderBase):
             data = np.array(new_img_batch) # (n_patches, c, x, y, z)
             seg = np.array(new_seg_batch)[:, np.newaxis]  # (n_patches, 1, x, y, z)
             batch_class_targets = np.repeat(batch_class_targets, len(patch_crop_coords_list), axis=0)
-            print('data',data.shape)
+            #print('data',data.shape)
 
             if self.cf.dim == 2:
                 if self.cf.n_3D_context is not None:
@@ -483,10 +486,10 @@ class PatientBatchIterator(SlimDataLoaderBase):
         if out_batch['patient_roi_labels'][0][0] > 0:
             out_batch['patient_roi_labels'][0] = [1]
 
-        for k in out_batch.keys():
-            print(k)
-            if k == 'patch_crop_coords':
-                print(out_batch[k])
+        #for k in out_batch.keys():
+        #    print(k)
+        #    if k == 'patch_crop_coords':
+        #        print(out_batch[k])
         return out_batch
 
 

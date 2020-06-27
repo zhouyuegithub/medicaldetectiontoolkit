@@ -40,9 +40,6 @@ if __name__ == "__main__":
     img_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/newresize/image/'
     label_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/newresize/label/'
     save_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/abus_npy/'
-    img_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/roi/image/'
-    label_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/roi/label/'
-    save_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/abus_roi_npy/'
     #csvpth = '/shenlab/lab_stor6/yuezhou/ABUSdata/data_info/class_info.csv'
     #names, classes = readcsv(csvpth) 
     if not os.path.exists(save_path):

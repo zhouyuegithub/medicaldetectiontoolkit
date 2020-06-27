@@ -21,7 +21,7 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 import os
 from copy import deepcopy
-def save_test_image(results_list, epoch,cf,mode = 'test'):
+def save_test_image(results_list, epoch,cf,pth,mode = 'test'):
     for box_pid in results_list:
         pid = box_pid[1]
         boxes = box_pid[0][0]
@@ -105,7 +105,7 @@ def save_test_image(results_list, epoch,cf,mode = 'test'):
                         ax.plot([coords[3], coords[3]], [coords[0], coords[2]], color=color, linewidth=1, alpha=1) # right
                         if plot_text:
                             ax.text(text_x, text_y, score_text, fontsize=score_font_size, color=text_color)
-        outfile = os.path.join(cf.plot_dir, 'pred_example_{}_{}_{}_{}.png'.format(mode,epoch,cf.fold,pid))
+        outfile = os.path.join(pth, 'pred_example_{}_{}_{}_{}.png'.format(mode,epoch,cf.fold,pid))
         try:
             plt.savefig(outfile)
         except:

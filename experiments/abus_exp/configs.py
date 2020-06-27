@@ -24,7 +24,7 @@ class configs(DefaultConfigs):
 
     def __init__(self, server_env=None):
 
-        self.gpu = '0'
+        self.gpu = '3'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
         #########################
         #    Preprocessing      #
@@ -101,7 +101,7 @@ class configs(DefaultConfigs):
         self.backbone_path = 'models/backbone_vnet.py'
         self.start_filts = 48 if self.dim == 2 else 18
         if 'vnet' in self.backbone_path:
-            self.end_filts = 256
+            self.end_filts = 256#128#64#32#256 
         if 'fpn' in self.backbone_path:
             self.end_filts = self.start_filts * 4 if self.dim == 2 else self.start_filts * 2
         self.res_architecture = 'resnet50' # 'resnet101' , 'resnet50'
@@ -141,10 +141,13 @@ class configs(DefaultConfigs):
         #   Testing / Plotting  #
         #########################
 
+        # patch stride during testing
+        self.testing_patch_stride = [64,128,128]
         # set the top-n-epochs to be saved for temporal averaging in testing.
         self.save_n_models = 2
         self.test_n_epochs = 5
-
+        
+        self.test_last_epoch = True 
         # show image
         if debug == 1:
             self.show_train_images = 1 
@@ -243,7 +246,8 @@ class configs(DefaultConfigs):
     def add_mrcnn_configs(self):
         #print('add_mrcnn_configs')
         # learning rate is a list with one entry per epoch.
-        self.learning_rate = [1e-4] * self.num_epochs
+        self.decrease_lr = 80
+        self.learning_rate = [1e-4] * self.decrease_lr + [1e-5] * (self.num_epochs - self.decrease_lr)
 
         # disable the re-sampling of mask proposals to original size for speed-up.
         # since evaluation is detection-driven (box-matching) and not instance segmentation-driven (iou-matching),
@@ -264,15 +268,16 @@ class configs(DefaultConfigs):
         #self.backbone_strides = {'xy': [4, 8, 16, 32], 'z': [1, 2, 4, 8]}
         if 'fpn' in self.backbone_path:
             self.backbone_strides = {'xy': [4, 8, 16, 32], 'z': [4 ,8 ,16 ,32]}
+            self.rpn_anchor_scales = {'xy': [[8], [16], [32], [64]], 'z': [[2], [4], [8], [16]]}
         if 'vnet' in self.backbone_path:
-            self.backbone_strides = {'xy':[8],'z':[8]}
+            self.backbone_strides = {'xy':[1,2,4,8,16],'z':[1,2,4,8,16]}
+            self.rpn_anchor_scales = {'xy': [[2],[4],[8],[16],[32]], 'z': [[2],[4],[8],[16],[32]]}
         # anchor scales are chosen according to expected object sizes in data set. Default uses only one anchor scale
         # per pyramid level. (outer list are pyramid levels (corresponding to BACKBONE_STRIDES), inner list are scales per level.)
-        self.rpn_anchor_scales = {'xy': [[8], [16], [32], [64]], 'z': [[2], [4], [8], [16]]}
 
         # choose which pyramid levels to extract features from: P2: 0, P3: 1, P4: 2, P5: 3.
-        #self.pyramid_levels = [0, 1, 2, 3]
-        self.pyramid_levels = [0]
+        #self.pyramid_levels = [1,2]
+        self.pyramid_levels = [3]
 
         # number of feature maps in rpn. typically lowered in 3D to save gpu-memory.
         self.n_rpn_features = 512 if self.dim == 2 else 128
@@ -329,15 +334,13 @@ class configs(DefaultConfigs):
                   int(np.ceil(self.patch_size[1] / stride))]
                  for stride in self.backbone_strides['xy']])
         else:
-            if 'fpn' in self.backbone_path:
-                self.backbone_shapes = np.array(
-                    [[int(np.ceil(self.patch_size[0] / stride)),
-                      int(np.ceil(self.patch_size[1] / stride)),
-                      int(np.ceil(self.patch_size[2] / stride_z))]
-                     for stride, stride_z in zip(self.backbone_strides['xy'], self.backbone_strides['z']
+            #if 'fpn' in self.backbone_path:
+            self.backbone_shapes = np.array(
+                [[int(np.ceil(self.patch_size[0] / stride)),
+                  int(np.ceil(self.patch_size[1] / stride)),
+                  int(np.ceil(self.patch_size[2] / stride_z))]
+                 for stride, stride_z in zip(self.backbone_strides['xy'], self.backbone_strides['z']
                                              )])
-            if 'vnet' in self.backbone_path:
-                self.backbone_shapes = np.array([[4,8,8]])
 
         if self.model == 'ufrcnn':
             self.operate_stride1 = False#True

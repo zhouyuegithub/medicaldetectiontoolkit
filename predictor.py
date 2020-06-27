@@ -70,12 +70,12 @@ class Predictor:
         if self.mode == 'test':
             try:
                 self.epoch_ranking = np.load(os.path.join(self.cf.fold_dir, 'epoch_ranking.npy'))[:cf.test_n_epochs]
-                #print('epoch_ranking',self.epoch_ranking)
+                print('epoch_ranking',self.epoch_ranking)
             except:
                 raise RuntimeError('no epoch ranking file in fold directory. '
                                    'seems like you are trying to run testing without prior training...')
             self.n_ens = cf.test_n_epochs
-            if self.cf.test_aug:#default True
+            if self.cf.test_aug:#False 
                 self.n_ens *= 4
 
 
@@ -98,7 +98,7 @@ class Predictor:
         self.logger.info('evaluating patient {} for fold {} '.format(batch['pid'], self.cf.fold))
 
         # True if patient is provided in patches and predictions need to be tiled.
-        self.patched_patient = True if 'patch_crop_coords' in list(batch.keys()) else False
+        self.patched_patient = True if 'patch_crop_coords' in list(batch.keys()) else False#true
 
         # forward batch through prediction pipeline.
         results_dict = self.data_aug_forward(batch)
@@ -135,15 +135,29 @@ class Predictor:
         dict_of_patient_results = OrderedDict()
 
         # get paths of all parameter sets to be loaded for temporal ensembling. (or just one for no temp. ensembling).
-        weight_paths = [os.path.join(self.cf.fold_dir, '{}_best_checkpoint'.format(epoch), 'params.pth') for epoch in
-                        self.epoch_ranking]
-        weight_paths = [weight_paths[0]]
-        for rank_ix, weight_path in enumerate(weight_paths):
-            testing_epoch = self.epoch_ranking[rank_ix]
+        weight_paths = [os.path.join(self.cf.fold_dir, '{}_best_checkpoint'.format(epoch), 'params.pth') for epoch in self.epoch_ranking]
+        weight_paths.append(os.path.join(self.cf.fold_dir,'last_checkpoint/params.pth'))
+
+        if self.cf.test_last_epoch == False:
+            testnum = 0 
+            weight_paths_ = [weight_paths[testnum]]
+            testing_epoch = self.epoch_ranking[testnum]
+        else:
+            testnum = -1
+            weight_paths_ = [weight_paths[testnum]]
+            testing_epoch = 'last_epoch'#self.epoch_ranking[testnum]
+
+        for rank_ix, weight_path in enumerate(weight_paths_):
             self.logger.info(('tmp ensembling over rank_ix:{} epoch:{}'.format(rank_ix, weight_path)))
-            self.net.load_state_dict(torch.load(weight_path))
-            #self.net.eval()
-            self.net.train()
+
+            if self.cf.test_last_epoch == True: 
+                netstate = torch.load(weight_path)
+                self.net.load_state_dict(netstate['state_dict'])
+                testing_epoch = testing_epoch + '_{}'.format(netstate['epoch'])
+            else:
+                self.net.load_state_dict(torch.load(weight_path))
+
+            self.net.eval()
             self.rank_ix = str(rank_ix)  # get string of current rank for unique patch ids.
             with torch.no_grad():
                 for _ in range(batch_gen['n_test']):
@@ -155,33 +169,37 @@ class Predictor:
                         if i[0] > 0:
                             batch['patient_roi_labels'][0] = [1]
                     # store batch info in patient entry of results dict.
-                    #if rank_ix == 0:
                     if batch['pid'] not in dict_of_patient_results.keys():
                         dict_of_patient_results[batch['pid']] = {}
                         dict_of_patient_results[batch['pid']]['results_list'] = []
+                        dict_of_patient_results[batch['pid']]['seg_preds'] = []
                         dict_of_patient_results[batch['pid']]['patient_bb_target'] = batch['patient_bb_target']
                         dict_of_patient_results[batch['pid']]['patient_roi_labels'] = batch['patient_roi_labels']
-                        #print('pid',batch['pid'])
+                        print('testing pid',batch['pid'])
                         #print('gt box', batch['patient_bb_target'])
                         #print('gt cls',batch['patient_roi_labels'])
                         #print('data',batch['data'].shape)# 18,1,64,128,128
 
                     # call prediction pipeline and store results in dict.
                     results_dict = self.predict_patient(batch)#pred box and seg of this batch
-                    #print('finish this pat')
-                    #fig = plot_batch_prediction(batch, results_dict, cf,'test')
-                    #print('results_dict',results_dict['boxes'])
+                    #print('result keys', results_dict.keys())
+                    #print('seg_preds',results_dict['seg_preds'].shape)
+                    #print('seg_preds',results_dict['seg_preds'].max())
                     dict_of_patient_results[batch['pid']]['results_list'].append(results_dict['boxes'])
-
+                    dict_of_patient_results[batch['pid']]['seg_preds'].append(results_dict['seg_preds'])
 
         self.logger.info('finished predicting test set. starting post-processing of predictions.')
         list_of_results_per_patient = []
+        list_of_results_per_patient_seg = []
 
         # loop over patients again to flatten results across epoch predictions.
         # if provided, add ground truth boxes for evaluation.
         for pid, p_dict in dict_of_patient_results.items():
-
-            tmp_ens_list = p_dict['results_list']
+            tmp_seg_result = dict_of_patient_results[pid]['seg_preds'][0]
+            #print('tmp_seg_result',tmp_seg_result.shape)
+            #print('tmp_seg_result',tmp_seg_result.max())
+            #print('tmp_seg_result',tmp_seg_result.min())
+            tmp_ens_list = p_dict['results_list']#len == 1
             results_dict = {}
             # collect all boxes/seg_preds of same batch_instance over temporal instances.
             results_dict['boxes'] = [[item for d in tmp_ens_list for item in d[batch_instance]]
@@ -200,153 +218,33 @@ class Predictor:
                                                      'box_type': 'gt'})
 
             list_of_results_per_patient.append([results_dict['boxes'], pid])
-        
+            list_of_results_per_patient_seg.append([tmp_seg_result,pid]) 
         # save out raw predictions.
-        out_string = 'raw_pred_boxes_hold_out_list' if self.cf.hold_out_test_set else 'raw_pred_boxes_list'#false
-        with open(os.path.join(self.cf.fold_dir, '{}.pickle'.format(out_string)), 'wb') as handle:
-            pickle.dump(list_of_results_per_patient, handle)
+        #out_string = 'raw_pred_boxes_hold_out_list' if self.cf.hold_out_test_set else 'raw_pred_boxes_list'#false
+        #with open(os.path.join(self.cf.fold_dir, '{}.pickle'.format(out_string)), 'wb') as handle:
+        #    pickle.dump(list_of_results_per_patient, handle)
 
         if return_results:#true
-            #return list_of_results_per_patient,testing_epoch
-            # consolidate predictions.
-            self.logger.info('applying wcs to test set predictions with iou = {} and n_ens = {}.'.format(
-                self.cf.wcs_iou, self.n_ens))
-            pool = Pool(processes=6)
-            mp_inputs = [[ii[0], ii[1], self.cf.class_dict, self.cf.wcs_iou, self.n_ens] for ii in list_of_results_per_patient]
-            list_of_results_per_patient = pool.map(apply_wbc_to_patient, mp_inputs, chunksize=1)
-            pool.close()
-            pool.join()
-
-            # merge 2D boxes to 3D cubes. (if model predicts 2D but evaluation is run in 3D)
-            if self.cf.merge_2D_to_3D_preds:
-                self.logger.info('applying 2Dto3D merging to test set predictions with iou = {}.'.format(self.cf.merge_3D_iou))
-                pool = Pool(processes=6)
-                mp_inputs = [[ii[0], ii[1], self.cf.class_dict, self.cf.merge_3D_iou] for ii in list_of_results_per_patient]
-                list_of_results_per_patient = pool.map(merge_2D_to_3D_preds_per_patient, mp_inputs, chunksize=1)
-                pool.close()
-                pool.join()
-
             return list_of_results_per_patient,testing_epoch
+            # consolidate predictions.
+            #self.logger.info('applying wcs to test set predictions with iou = {} and n_ens = {}.'.format(
+            #    self.cf.wcs_iou, self.n_ens))
+            #pool = Pool(processes=6)
+            #mp_inputs = [[ii[0], ii[1], self.cf.class_dict, self.cf.wcs_iou, self.n_ens] for ii in list_of_results_per_patient]
+            #list_of_results_per_patient = pool.map(apply_wbc_to_patient, mp_inputs, chunksize=1)
+            #pool.close()
+            #pool.join()
 
-    #def predict_test_set(self, batch_gen,cf, return_results=True):
-    #    """
-    #    wrapper around test method, which loads multiple (or one) epoch parameters (temporal ensembling), loops through
-    #    the test set and collects predictions per patient. Also flattens the results per patient and epoch
-    #    and adds optional ground truth boxes for evaluation. Saves out the raw result list for later analysis and
-    #    optionally consolidates and returns predictions immediately.
-    #    :return: (optionally) list_of_results_per_patient: list over patient results. each entry is a dict with keys:
-    #             - 'boxes': list over batch elements. each element is a list over boxes, where each box is
-    #                        one dictionary: [[box_0, ...], [box_n,...]]. batch elements are slices for 2D predictions
-    #                        (if not merged to 3D), and a dummy batch dimension of 1 for 3D predictions.
-    #             - 'seg_preds': not implemented yet. todo for evaluation of instance/semantic segmentation.
-    #    """
-    #    #print('in predict_test_set')
-    #    dict_of_patient_results = OrderedDict()
+            ## merge 2D boxes to 3D cubes. (if model predicts 2D but evaluation is run in 3D)
+            #if self.cf.merge_2D_to_3D_preds:
+            #    self.logger.info('applying 2Dto3D merging to test set predictions with iou = {}.'.format(self.cf.merge_3D_iou))
+            #    pool = Pool(processes=6)
+            #    mp_inputs = [[ii[0], ii[1], self.cf.class_dict, self.cf.merge_3D_iou] for ii in list_of_results_per_patient]
+            #    list_of_results_per_patient = pool.map(merge_2D_to_3D_preds_per_patient, mp_inputs, chunksize=1)
+            #    pool.close()
+            #    pool.join()
 
-    #    # get paths of all parameter sets to be loaded for temporal ensembling. (or just one for no temp. ensembling).
-    #    weight_paths = [os.path.join(self.cf.fold_dir, '{}_best_checkpoint'.format(epoch), 'params.pth') for epoch in self.epoch_ranking]
-    #    weight_paths = [weight_paths[0]]#test the best model
-    #    for rank_ix, weight_path in enumerate(weight_paths):
-    #        testing_epoch = self.epoch_ranking[rank_ix]
-    #        self.logger.info(('tmp ensembling over rank_ix:{} epoch:{}'.format(rank_ix, weight_path)))
-    #        self.net.load_state_dict(torch.load(weight_path))
-    #        self.net.eval()
-    #        self.rank_ix = str(rank_ix)  # get string of current rank for unique patch ids.
-    #        with torch.no_grad():
-    #            for _ in range(batch_gen['n_test']):
-
-    #                batch = next(batch_gen['test'])
-    #                for i in batch['patient_roi_labels']:
-    #                    if i[0] > 0:
-    #                        batch['patient_roi_labels'][0] = [1]
-    #                #for k in batch.keys():
-    #                #    print('k',k)
-    #                #    if k == 'patient_roi_labels':
-    #                #        print(batch[k])
-    #                # store batch info in patient entry of results dict.
-    #                if batch['pid'] not in dict_of_patient_results.keys():
-    #                    dict_of_patient_results[batch['pid']] = {}
-    #                    dict_of_patient_results[batch['pid']]['results_list'] = []
-    #                    dict_of_patient_results[batch['pid']]['patient_bb_target'] = batch['patient_bb_target']
-    #                    dict_of_patient_results[batch['pid']]['patient_roi_labels'] = batch['patient_roi_labels']
-    #                    #print('pid',batch['pid'])
-    #                    #print('gt box', batch['patient_bb_target'])
-    #                    #print('gt cls',batch['patient_roi_labels'])
-    #                    #print('data',batch['data'].shape)# 18,1,64,128,128
-
-    #                # call prediction pipeline and store results in dict.
-    #                results_dict = self.predict_patient(batch)#pred box and seg of this batch
-    #                #print('finish this pat')
-    #                #print('in predict_test_set',len(results_dict['boxes']))
-    #                #print('in predict_test_set',len(results_dict['boxes'][0]))
-    #                #for k in results_dict['boxes'][0][0].keys():
-    #                #    print('k',k)
-    #                #fig = plot_batch_prediction(batch, results_dict, cf,'test')
-    #                #print('results_dict',results_dict['boxes'])
-    #                dict_of_patient_results[batch['pid']]['results_list'].append(results_dict['boxes'])
-
-
-    #    self.logger.info('finished predicting test set. starting post-processing of predictions.')
-    #    list_of_results_per_patient = []
-
-    #    # loop over patients again to flatten results across epoch predictions.
-    #    # if provided, add ground truth boxes for evaluation.
-    #    for pid, p_dict in dict_of_patient_results.items():
-    #        tmp_ens_list = p_dict['results_list']
-    #        results_dict = {}
-    #        # collect all boxes/seg_preds of same batch_instance over temporal instances.
-    #        results_dict['boxes'] = [[item for d in tmp_ens_list for item in d[batch_instance]]
-    #                                 for batch_instance in range(len(tmp_ens_list[0]))]
-
-    #        # TODO return for instance segmentation:
-    #        # results_dict['seg_preds'] = np.mean(results_dict['seg_preds'], 1)[:, None]
-    #        # results_dict['seg_preds'] = np.array([[item for d in tmp_ens_list for item in d['seg_preds'][batch_instance]]
-    #        #                                       for batch_instance in range(len(tmp_ens_list[0]['boxes']))])
-
-    #        # add 3D ground truth boxes for evaluation.
-    #        for b in range(p_dict['patient_bb_target'].shape[0]):
-    #            for t in range(len(p_dict['patient_bb_target'][b])):
-    #                results_dict['boxes'][b].append({'box_coords': p_dict['patient_bb_target'][b][t],
-    #                                                 'box_label': p_dict['patient_roi_labels'][b][t],
-    #                                                 'box_type': 'gt'})
-
-    #        list_of_results_per_patient.append([results_dict['boxes'], pid])
-    #    return list_of_results_per_patient
-    #    print('list_of_results_per_patient',len(list_of_results_per_patient))
-    #    print(list_of_results_per_patient[0][1])
-    #    print(list_of_results_per_patient[1][1])
-    #    # save out raw predictions.
-    #    out_string = 'raw_pred_boxes_hold_out_list' if self.cf.hold_out_test_set else 'raw_pred_boxes_list'#false
-    #    with open(os.path.join(self.cf.fold_dir, '{}.pickle'.format(out_string)), 'wb') as handle:
-    #        pickle.dump(list_of_results_per_patient, handle)
-
-    #    if return_results:#true
-    #        print('list_of_results_per_patient',len(list_of_results_per_patient))
-    #        print(list_of_results_per_patient[0][1])
-    #        print(list_of_results_per_patient[1][1])
-    #        return list_of_results_per_patient
-    #        # consolidate predictions.
-    #        self.logger.info('applying wcs to test set predictions with iou = {} and n_ens = {}.'.format(
-    #            self.cf.wcs_iou, self.n_ens))#1e-5, 1
-    #        pool = Pool(processes=6)
-    #        mp_inputs = [[ii[0], ii[1], self.cf.class_dict, self.cf.wcs_iou, self.n_ens] for ii in list_of_results_per_patient]
-    #        list_of_results_per_patient = pool.map(apply_wbc_to_patient, mp_inputs, chunksize=1)
-    #        pool.close()
-    #        pool.join()
-
-    #        # merge 2D boxes to 3D cubes. (if model predicts 2D but evaluation is run in 3D)
-    #        if self.cf.merge_2D_to_3D_preds:
-    #            self.logger.info('applying 2Dto3D merging to test set predictions with iou = {}.'.format(self.cf.merge_3D_iou))
-    #            pool = Pool(processes=6)
-    #            mp_inputs = [[ii[0], ii[1], self.cf.class_dict, self.cf.merge_3D_iou] for ii in list_of_results_per_patient]
-    #            list_of_results_per_patient = pool.map(merge_2D_to_3D_preds_per_patient, mp_inputs, chunksize=1)
-    #            pool.close()
-    #            pool.join()
-    #        print('list_of_results_per_patient',len(list_of_results_per_patient))
-    #        print(list_of_results_per_patient[0][1])
-    #        print(list_of_results_per_patient[1][1])
-
-    #        return list_of_results_per_patient,testing_epoch
+            #return list_of_results_per_patient,list_of_results_per_patient_seg,testing_epoch
 
 
     def load_saved_predictions(self, apply_wbc=False):

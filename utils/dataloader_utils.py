@@ -16,6 +16,7 @@
 
 import numpy as np
 import os
+import math
 from multiprocessing import Pool
 
 
@@ -179,8 +180,48 @@ def get_patch_crop_coords(img, patch_size, min_overlap=30):
                 coords_mesh_grid.append([ymin, ymax, xmin, xmax])
     return np.array(coords_mesh_grid).astype(int)
 
+def get_patch_crop_coords_stride(img,patch_size,stride):
+    #print('in get_patch_crop_coords_stride')
+    w, h, d = img.shape
+    add_pad = False
+    if w < patch_size[0]:
+        w_pad = patch_size[0]-w
+        add_pad = True
+    else:
+        w_pad = 0
+    if h < patch_size[1]:
+        h_pad = patch_size[1]-h
+        add_pad = True
+    else:
+        h_pad = 0
+    if d < patch_size[2]:
+        d_pad = patch_size[2]-d
+        add_pad = True
+    else:
+        d_pad = 0
+    wl_pad, wr_pad = w_pad//2,w_pad-w_pad//2
+    hl_pad, hr_pad = h_pad//2,h_pad-h_pad//2
+    dl_pad, dr_pad = d_pad//2,d_pad-d_pad//2
+    if add_pad:
+        img = np.pad(img, [(wl_pad,wr_pad),(hl_pad,hr_pad), (dl_pad, dr_pad)], mode='constant', constant_values=0)
+    ww,hh,dd = img.shape
+    stride_x,stride_y,stride_z = stride
+    '''how many patch in each dim'''
+    sx = math.ceil((ww - patch_size[0]) / stride_x) + 1#near value int 
+    sy = math.ceil((hh - patch_size[1]) / stride_y) + 1
+    sz = math.ceil((dd - patch_size[2]) / stride_z) + 1
+    #print("{}, {}, {}".format(sx, sy, sz))
 
-
+    crop_coords = []
+    for x in range(0, sx):
+        xs = min(stride_x*x, ww-patch_size[0])
+        for y in range(0, sy):
+            ys = min(stride_y * y,hh-patch_size[1])
+            for z in range(0, sz):
+                zs = min(stride_z * z, dd-patch_size[2])
+                crop_coords.append([xs,xs+patch_size[0],ys,ys+patch_size[1],zs,zs+patch_size[2]])
+    #print('crop_coords',crop_coords)
+    return np.array(crop_coords).astype(int)
 def pad_nd_image(image, new_shape=None, mode="edge", kwargs=None, return_slicer=False, shape_must_be_divisible_by=None):
     """
     one padder to pad them all. Documentation? Well okay. A little bit. by Fabian Isensee

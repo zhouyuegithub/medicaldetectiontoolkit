@@ -79,10 +79,10 @@ def prep_exp(dataset_path, exp_path, server_env, use_stored_settings=True, is_tr
                 subprocess.call('cp {} {}'.format(os.path.join(cf.backbone_path), os.path.join(exp_path, 'backbone.py')), shell=True)
 
             # copy the snapshot model scripts from exp_dir back to the source_dir as tmp_model / tmp_backbone.
-            tmp_model_path = os.path.join(cf.source_dir, 'models', 'tmp_model.py')
-            tmp_backbone_path = os.path.join(cf.source_dir, 'models', 'tmp_backbone.py')
-            subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'model.py'), tmp_model_path), shell=True)
-            subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'backbone.py'), tmp_backbone_path), shell=True)
+            #tmp_model_path = os.path.join(cf.source_dir, 'models', 'tmp_model.py')
+            #tmp_backbone_path = os.path.join(cf.source_dir, 'models', 'tmp_backbone.py')
+            #subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'model.py'), tmp_model_path), shell=True)
+            #subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'backbone.py'), tmp_backbone_path), shell=True)
             cf.model_path = tmp_model_path
             cf.backbone_path = tmp_backbone_path
 
@@ -97,12 +97,19 @@ def prep_exp(dataset_path, exp_path, server_env, use_stored_settings=True, is_tr
 
     else:
         # for testing, copy the snapshot model scripts from exp_dir back to the source_dir as tmp_model / tmp_backbone.
-        cf_file = import_module('cf', os.path.join(exp_path, 'configs.py'))
+        cf_file = import_module('cf', os.path.join(dataset_path, 'configs.py'))
         cf = cf_file.configs(server_env)
-        tmp_model_path = os.path.join(cf.source_dir, 'models', 'tmp_model.py')
-        tmp_backbone_path = os.path.join(cf.source_dir, 'models', 'tmp_backbone.py')
-        subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'model.py'), tmp_model_path), shell=True)
-        subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'backbone.py'), tmp_backbone_path), shell=True)
+        #print('exp_path',exp_path)
+        #print('dataset_path',dataset_path)
+        #print('source_dir',cf.source_dir)
+        #tmp_model_path = os.path.join(cf.source_dir, 'models', 'tmp_model.py')
+        tmp_model_path = os.path.join(cf.source_dir, 'models', cf.model+'.py')
+        #print('tmp_model_path',tmp_model_path)
+        #tmp_backbone_path = os.path.join(cf.source_dir, 'models', 'tmp_backbone.py')
+        tmp_backbone_path = os.path.join(cf.source_dir, cf.backbone_path)
+        #print('tmp_backbone_path',tmp_backbone_path)
+        #subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'model.py'), tmp_model_path), shell=True)
+        #subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'backbone.py'), tmp_backbone_path), shell=True)
         cf.model_path = tmp_model_path
         cf.backbone_path = tmp_backbone_path
 
@@ -112,7 +119,8 @@ def prep_exp(dataset_path, exp_path, server_env, use_stored_settings=True, is_tr
     cf.experiment_name = exp_path.split("/")[-1]
     cf.server_env = server_env
     cf.created_fold_id_pickle = False
-
+    if not os.path.exists(cf.test_dir):
+        os.makedirs(cf.test_dir)
     if not os.path.exists(cf.plot_dir):
         os.makedirs(cf.plot_dir)
 
@@ -205,6 +213,7 @@ class ModelSelector:
         save_dir = os.path.join(self.cf.fold_dir, 'last_checkpoint'.format(epoch))
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
+        print('seve last dir',save_dir)
         torch.save(state, os.path.join(save_dir, 'params.pth'))
         np.save(os.path.join(save_dir, 'epoch_ranking'), epoch_ranking[:self.cf.save_n_models])
         with open(os.path.join(save_dir, 'monitor_metrics.pickle'), 'wb') as handle:

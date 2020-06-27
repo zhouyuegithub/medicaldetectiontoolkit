@@ -181,15 +181,15 @@ def test(logger):
     test_evaluator = Evaluator(cf, logger, mode='test')
     batch_gen = data_loader.get_test_generator(cf, logger)
     test_results_list, testing_epoch= test_predictor.predict_test_set(batch_gen,cf, return_results=True)
+    #save_test_image(test_results_list,testing_epoch,cf,cf.test_dir)
+    count = test_evaluator.evaluate_predictions(test_results_list,testing_epoch,cf,pth = cf.test_dir,flag = 'test')
+    print('tp {}, fp {}, fn {}'.format(count[0],count[1],count[2]))
+    #test_evaluator.score_test_df()
     #print('test_results_list',len(test_results_list))
     #print('test_results_list',len(test_results_list[0][0][0]))
     #print('test_results_list',(test_results_list[0][1]))
     #print('test_results_list',len(test_results_list[1][0][0]))
     #print('test_results_list',(test_results_list[1][1]))
-    save_test_image(test_results_list,testing_epoch,cf)
-    count = test_evaluator.evaluate_predictions(test_results_list,testing_epoch,cf,flag = 'test')
-    print('tp {}, fp {}, fn {}'.format(count[0],count[1],count[2]))
-    test_evaluator.score_test_df()
 
 
 if __name__ == '__main__':
@@ -199,7 +199,7 @@ if __name__ == '__main__':
                         help='one out of: train / test / train_test / analysis / create_exp')
     parser.add_argument('-f','--folds', nargs='+', type=int, default=[1],
                         help='None runs over all folds in CV. otherwise specify list of folds.')
-    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor4/yuezhou/mrcnn/0623_vnetfeature/',
+    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/0627_vlevel3/',
                         help='path to experiment dir. will be created if non existent.')
     parser.add_argument('--server_env', default=False, action='store_true',
                         help='change IO settings to deploy models on a cluster.')
