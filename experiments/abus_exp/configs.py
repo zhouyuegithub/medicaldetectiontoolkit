@@ -24,7 +24,7 @@ class configs(DefaultConfigs):
 
     def __init__(self, server_env=None):
 
-        self.gpu = '3'
+        self.gpu = '6'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
         #########################
         #    Preprocessing      #
@@ -101,7 +101,7 @@ class configs(DefaultConfigs):
         self.backbone_path = 'models/backbone_vnet.py'
         self.start_filts = 48 if self.dim == 2 else 18
         if 'vnet' in self.backbone_path:
-            self.end_filts = 256#128#64#32#256 
+            self.end_filts = 32#[32,64,128,256,256] 
         if 'fpn' in self.backbone_path:
             self.end_filts = self.start_filts * 4 if self.dim == 2 else self.start_filts * 2
         self.res_architecture = 'resnet50' # 'resnet101' , 'resnet50'
@@ -114,10 +114,10 @@ class configs(DefaultConfigs):
         #########################
         #  Schedule / Selection #
         #########################
-        debug = 0 
-        if debug == 1:
+        self.debug = 0 
+        if self.debug == 1:
             self.num_epochs = 2 
-            self.num_train_batches = 2 if self.dim == 2 else 2 
+            self.num_train_batches = 2 if self.dim == 2 else 100 
             self.batch_size = 20 if self.dim == 2 else 2 
         else:
             self.num_epochs = 300
@@ -130,9 +130,9 @@ class configs(DefaultConfigs):
         # the former is morge accurate, while the latter is faster (depending on volume size)
         self.val_mode = 'val_sampling' # one of 'val_sampling' , 'val_patient'
         if self.val_mode == 'val_patient':
-            self.max_val_patients = 50  # if 'None' iterates over entire val_set once.
+            self.max_val_patients = None  # if 'None' iterates over entire val_set once.
         if self.val_mode == 'val_sampling':
-            if debug == 1:
+            if self.debug == 1:
                 self.num_val_batches = 2
             else:
                 self.num_val_batches = 20
@@ -149,7 +149,7 @@ class configs(DefaultConfigs):
         
         self.test_last_epoch = True 
         # show image
-        if debug == 1:
+        if self.debug == 1:
             self.show_train_images = 1 
             self.show_val_images = 1
         else:
@@ -277,7 +277,7 @@ class configs(DefaultConfigs):
 
         # choose which pyramid levels to extract features from: P2: 0, P3: 1, P4: 2, P5: 3.
         #self.pyramid_levels = [1,2]
-        self.pyramid_levels = [3]
+        self.pyramid_levels = [0]
 
         # number of feature maps in rpn. typically lowered in 3D to save gpu-memory.
         self.n_rpn_features = 512 if self.dim == 2 else 128

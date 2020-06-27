@@ -100,11 +100,16 @@ class Classifier(nn.Module):
         self.pyramid_levels = cf.pyramid_levels
         # instance_norm does not work with spatial dims (1, 1, (1))
         norm = cf.norm if cf.norm != 'instance_norm' else None
+        if 'fpn' in cf.backbone_path:
+            self.temp_end_filter = cf.end_filts * 4
+        if 'vnet' in cf.backbone_path:
+            self.temp_end_filter = cf.end_filts
 
-        self.conv1 = conv(cf.end_filts, cf.end_filts * 4, ks=self.pool_size, stride=1, norm=norm, relu=cf.relu)
-        self.conv2 = conv(cf.end_filts * 4, cf.end_filts * 4, ks=1, stride=1, norm=norm, relu=cf.relu)
-        self.linear_class = nn.Linear(cf.end_filts * 4, cf.head_classes)
-        self.linear_bbox = nn.Linear(cf.end_filts * 4, cf.head_classes * 2 * self.dim)
+        self.conv1 = conv(cf.end_filts, self.temp_end_filter , ks=self.pool_size, stride=1, norm=norm, relu=cf.relu)
+        self.conv2 = conv(self.temp_end_filter, self.temp_end_filter, ks=1, stride=1, norm=norm, relu=cf.relu)
+        self.linear_class = nn.Linear(self.temp_end_filter, cf.head_classes)
+        self.linear_bbox = nn.Linear(self.temp_end_filter, cf.head_classes * 2 * self.dim)
+
 
     def forward(self, x, rois):
         """
@@ -118,7 +123,8 @@ class Classifier(nn.Module):
         x = pyramid_roi_align(x, rois, self.pool_size, self.pyramid_levels, self.dim)
         x = self.conv1(x)
         x = self.conv2(x)
-        x = x.view(-1, self.in_channels * 4)
+        #x = x.view(-1, self.in_channels * 4)
+        x = x.view(-1, self.temp_end_filter )
         mrcnn_class_logits = self.linear_class(x)
         mrcnn_bbox = self.linear_bbox(x)
         mrcnn_bbox = mrcnn_bbox.view(mrcnn_bbox.size()[0], -1, self.dim * 2)
@@ -792,11 +798,14 @@ class net(nn.Module):
         # build Anchors, FPN, RPN, Classifier / Bbox-Regressor -head, Mask-head
         self.np_anchors = mutils.generate_pyramid_anchors(self.logger, self.cf)
         self.anchors = torch.from_numpy(self.np_anchors).float().cuda()
-        self.fpn = backbone.FPN(self.cf, conv, operate_stride1=False)
+        if 'fpn' in self.cf.backbone_path:
+            self.featurenet = backbone.FPN(self.cf, conv)
+        if 'vnet' in self.cf.backbone_path:
+            self.featurenet = backbone.VNet(self.cf)
         self.rpn = RPN(self.cf, conv)
         self.classifier = Classifier(self.cf, conv)
         self.mask = Mask(self.cf, conv)
-        self.final_conv = conv(self.cf.end_filts, self.cf.num_seg_classes, ks=1, pad=0, norm=self.cf.norm, relu=None)
+        self.final_conv = conv(32, self.cf.num_seg_classes, ks=1, pad=0, norm=self.cf.norm, relu=None)
 
 
     def train_forward(self, batch, is_validation=False):
@@ -896,7 +905,8 @@ class net(nn.Module):
         seg_loss_dice = 1 - mutils.batch_dice(F.softmax(seg_logits, dim=1), var_seg_ohe)
         seg_loss_ce = F.cross_entropy(seg_logits, var_seg[:, 0])
 
-        loss = batch_rpn_class_loss + batch_rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + (seg_loss_dice + seg_loss_ce) / 2
+        #loss = batch_rpn_class_loss + batch_rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + (seg_loss_dice + seg_loss_ce) / 2
+        loss = batch_rpn_class_loss + batch_rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss
 
         # monitor RPN performance: detection count = the number of correctly matched proposals per fg-class.
         dcount = [list(target_class_ids.cpu().data.numpy()).count(c) for c in np.arange(self.cf.head_classes)[1:]]
@@ -909,6 +919,7 @@ class net(nn.Module):
                                         "mrcnn_bbox: {4:.2f}, dice_loss: {5:.2f}, dcount {6}"\
             .format(loss.item(), batch_rpn_class_loss.item(), batch_rpn_bbox_loss.item(), mrcnn_class_loss.item(),
                     mrcnn_bbox_loss.item(), seg_loss_dice.item(), dcount)
+        results_dict['monitor_losses'] = {'mrcnn_class_loss':mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item()}
 
         return results_dict
 
@@ -941,7 +952,7 @@ class net(nn.Module):
         :return: detection_masks: (n_final_detections, n_classes, y, x, (z)) raw molded masks as returned by mask-head.
         """
         # extract features.
-        fpn_outs = self.fpn(img)
+        fpn_outs = self.featurenet(img)
         seg_logits = self.final_conv(fpn_outs[0])
         #rpn_feature_maps = [fpn_outs[i + 1] for i in self.cf.pyramid_levels]
         rpn_feature_maps = [fpn_outs[i] for i in self.cf.pyramid_levels]

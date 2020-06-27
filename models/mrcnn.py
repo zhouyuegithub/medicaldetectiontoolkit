@@ -60,9 +60,9 @@ class RPN(nn.Module):
         :return: rpn_probs_logits (b, 2, n_anchors)
         :return: rpn_bbox (b, 2 * dim, n_anchors)
         """
-        print('in forward RPN')
+        #print('in forward RPN')
         # Shared convolutional base of the RPN.
-        print('input x',x.shape)
+        #print('input x',x.shape)
         x = self.conv_shared(x)
         #print('shared x',x.shape)
 

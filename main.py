@@ -85,6 +85,7 @@ def train(logger):
         for bix in range(cf.num_train_batches):#200
             num_batch += 1
             batch = next(batch_gen['train'])#data,seg,pid,class_target,bb_target,roi_masks,roi_labels
+            #print('training',batch['pid'])
             for ii,i in enumerate(batch['roi_labels']):
                 if i[0] > 0:
                     batch['roi_labels'][ii] = [1]
@@ -118,10 +119,12 @@ def train(logger):
             train_results_list.append([results_dict['boxes'], batch['pid']])#just gt and det
             monitor_metrics['train']['monitor_values'][epoch].append(results_dict['monitor_values'])
 
-        print('*'*10 + 'finish epoch {}'.format(epoch))
+        print('*'*50 + 'finish epoch {}'.format(epoch))
         count_train = train_evaluator.evaluate_predictions(train_results_list,epoch,cf,flag = 'train')
-        precision = count_train[0]/ (count_train[0]+count_train[1]+0.01)
-        recall = count_train[0]/ (count_train[0]+count_train[2]+0.01)
+        print('tp_patient {}, tp_roi {}, fp_roi {}, total_num {}'.format(count_train[0],count_train[1],count_train[2],count_train[3]))
+        precision = count_train[0]/ (count_train[0]+count_train[2]+0.01)
+        recall = count_train[0]/ (count_train[3])
+        print('precision:{}, recall:{}'.format(precision,recall))
         monitor_metrics['train']['train_recall'].append(recall)
         monitor_metrics['train']['train_percision'].append(precision)
         writer.add_scalar('Train/train_precision',precision,epoch)
@@ -137,6 +140,7 @@ def train(logger):
                 for _ in range(batch_gen['n_val']):#50
                     num_val += 1
                     batch = next(batch_gen[cf.val_mode])
+                    #print('valing',batch['pid'])
                     for ii,i in enumerate(batch['roi_labels']):
                         if i[0] > 0:
                             batch['roi_labels'][ii] = [1]
@@ -155,8 +159,10 @@ def train(logger):
                     monitor_metrics['val']['monitor_values'][epoch].append(results_dict['monitor_values'])
 
                 count_val = val_evaluator.evaluate_predictions(val_results_list,epoch,cf,flag = 'val')
-                precision = count_val[0]/ (count_val[0]+count_val[1]+0.01)
-                recall = count_val[0]/ (count_val[0]+count_val[2]+0.01)
+                print('tp_patient {}, tp_roi {}, fp_roi {}, total_num {}'.format(count_val[0],count_val[1],count_val[2],count_val[3]))
+                precision = count_val[0]/ (count_val[0]+count_val[2]+0.01)
+                recall = count_val[0]/ (count_val[3])
+                print('precision:{}, recall:{}'.format(precision,recall))
                 monitor_metrics['val']['val_recall'].append(recall)
                 monitor_metrics['val']['val_percision'].append(precision) 
                 writer.add_scalar('Val/val_precision',precision,epoch)
@@ -183,7 +189,7 @@ def test(logger):
     test_results_list, testing_epoch= test_predictor.predict_test_set(batch_gen,cf, return_results=True)
     #save_test_image(test_results_list,testing_epoch,cf,cf.test_dir)
     count = test_evaluator.evaluate_predictions(test_results_list,testing_epoch,cf,pth = cf.test_dir,flag = 'test')
-    print('tp {}, fp {}, fn {}'.format(count[0],count[1],count[2]))
+    print('tp_patient {}, tp_roi {}, fp_roi {}'.format(count[0],count[1],count[2]))
     #test_evaluator.score_test_df()
     #print('test_results_list',len(test_results_list))
     #print('test_results_list',len(test_results_list[0][0][0]))
@@ -199,7 +205,7 @@ if __name__ == '__main__':
                         help='one out of: train / test / train_test / analysis / create_exp')
     parser.add_argument('-f','--folds', nargs='+', type=int, default=[1],
                         help='None runs over all folds in CV. otherwise specify list of folds.')
-    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/0627_vlevel3/',
+    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/0627_vlevel0/',
                         help='path to experiment dir. will be created if non existent.')
     parser.add_argument('--server_env', default=False, action='store_true',
                         help='change IO settings to deploy models on a cluster.')

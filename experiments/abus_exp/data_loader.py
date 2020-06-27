@@ -66,7 +66,7 @@ def get_train_generators(cf, logger):
     train_ix, val_ix, test_ix, _ = fg[cf.fold]
 
     train_pids = [all_pids_list[ix] for ix in train_ix]
-    #print('train_pids: ', train_pids)
+    print('train_pids: ', len(train_pids))
     val_pids = [all_pids_list[ix] for ix in val_ix]
 
     if cf.hold_out_test_set:#default: False
@@ -82,12 +82,16 @@ def get_train_generators(cf, logger):
     logger.info("data set loaded with: {} train / {} val / {} test patients".format(len(train_ix), len(val_ix), len(test_ix)))
     batch_gen = {}
     batch_gen['train'] = create_data_gen_pipeline(train_data, cf=cf, is_training=True)#return croped transormed rois
+    batch_gen['n_train'] = len(train_ix)
     batch_gen['val_sampling'] = create_data_gen_pipeline(val_data, cf=cf, is_training=False)# center croped
     if cf.val_mode == 'val_patient':#val_sampling
         batch_gen['val_patient'] = PatientBatchIterator(val_data, cf=cf)
         batch_gen['n_val'] = len(val_ix) if cf.max_val_patients is None else min(len(val_ix), cf.max_val_patients)
     else:
-        batch_gen['n_val'] = cf.num_val_batches#50
+        if cf.debug == 1:
+            batch_gen['n_val'] = 2#len(val_ix)#cf.num_val_batches#50
+        else:
+            batch_gen['n_val'] = len(val_ix)#cf.num_val_batches#50
     return batch_gen
 
 
@@ -197,11 +201,11 @@ def create_data_gen_pipeline(patient_data, cf, is_training=True):
     """
 
     # create instance of batch generator as first element in pipeline.
-    data_gen = BatchGenerator(patient_data, batch_size=cf.batch_size, cf=cf)#batch_size = 8
 
     # add transformations to pipeline.
     my_transforms = []
     if is_training:
+        data_gen = BatchGenerator(patient_data, batch_size=cf.batch_size, cf=cf)#batch_size = 8
         mirror_transform = Mirror(axes=np.arange(cf.dim))
         my_transforms.append(mirror_transform)
         spatial_transform = SpatialTransform(patch_size=cf.patch_size[:cf.dim],
@@ -215,6 +219,7 @@ def create_data_gen_pipeline(patient_data, cf, is_training=True):
 
         my_transforms.append(spatial_transform)
     else:
+        data_gen = BatchGenerator(patient_data, batch_size=1, cf=cf)#batch_size = 8
         my_transforms.append(CenterCropTransform(crop_size=cf.patch_size[:cf.dim]))
 
     #print('transform end ---')
@@ -255,8 +260,6 @@ class BatchGenerator(SlimDataLoaderBase):
             batch_ixs = dutils.get_class_balanced_patients(
                 class_targets_list, self.batch_size, self.cf.head_classes - 1, slack_factor=self.cf.batch_sample_slack)#0.2
         else:
-            #print('len(class_targets_list): ', len(class_targets_list))
-            #print('self.batch_size: ', self.batch_size)
             batch_ixs = np.random.choice(len(class_targets_list), self.batch_size)
 
         #print('batch_idx in generator: ', batch_ids)

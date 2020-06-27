@@ -78,7 +78,11 @@ class Evaluator():
             # [[results_0, pid_0], [results_1, pid_1], ...] -> [results_0, results_1, ..] , [pid_0, pid_1, ...]
             batch_elements_list = [item[0] for item in results_list]
             pid_list = [item[1] for item in results_list]
-
+        #print('pid_list',len(pid_list))
+        total_num = []
+        [total_num.append(i) for i in pid_list if not i in total_num] 
+        total_num = len(total_num)
+        print('total_num',total_num)
         for match_iou in self.cf.ap_match_ious:
             self.logger.info('evaluating with match_iou: {}'.format(match_iou))
             TP_roi,FP_roi,FN_roi,TN_pat = 0,0,0,0
@@ -217,11 +221,18 @@ class Evaluator():
         self.test_df['det_type'] = df_list_type
         self.test_df['fold'] = self.cf.fold
         self.test_df['match_iou'] = df_list_match_iou
+        tp_patient = [] 
+        for ii,det in enumerate(self.test_df['det_type']):
+            if det == 'det_tp':
+                tp_patient.append(self.test_df['pid'][ii])
+        tp_patient_ = []
+        [tp_patient_.append(i) for i in tp_patient if not i in tp_patient_] 
+        tp_patient_num = len(tp_patient_)
         if flag == 'test':
             csvpth = pth + '/{}_epoch_{}.csv'.format(flag,epoch)
             print('csvpth',csvpth)
             self.test_df.to_csv(csvpth)
-        return (TP_roi,FP_roi,FN_roi,TN_pat)
+        return (tp_patient_num,TP_roi,FP_roi,total_num)#,FN_roi,TN_pat)
 
 
     def return_metrics(self, monitor_metrics=None):
