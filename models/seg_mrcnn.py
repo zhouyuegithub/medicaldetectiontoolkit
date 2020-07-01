@@ -45,21 +45,15 @@ class RPN(nn.Module):
     def __init__(self, cf, conv):
 
         super(RPN, self).__init__()
-        self.cf = cf
         self.dim = conv.dim
-        #self.conv_shared = conv(cf.end_filts, cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
-        self.conv_shared0 = conv(cf.end_filts[0], cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
-        self.conv_shared1 = conv(cf.end_filts[1], cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
-        self.conv_shared2 = conv(cf.end_filts[2], cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
-        self.conv_shared3 = conv(cf.end_filts[3], cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
-        if 'vnet' in self.cf.backbone_path:
-            self.conv_shared4 = conv(cf.end_filts[4], cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
+
+        self.conv_shared = conv(cf.end_filts, cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)#36,128
         self.conv_class = conv(cf.n_rpn_features, 2 * len(cf.rpn_anchor_ratios), ks=1, stride=1, relu=None)#128,6
         self.conv_bbox = conv(cf.n_rpn_features, 2 * self.dim * len(cf.rpn_anchor_ratios), ks=1, stride=1, relu=None)#128,18
         #print('n_rpn_features',cf.n_rpn_features)
         #print('rpn_anchor_ratios',cf.rpn_anchor_ratios)
 
-    def forward(self, x, level):
+    def forward(self, x):
         """
         :param x: input feature maps (b, in_channels, y, x, (z))
         :return: rpn_class_logits (b, 2, n_anchors)
@@ -69,17 +63,7 @@ class RPN(nn.Module):
         #print('in forward RPN')
         # Shared convolutional base of the RPN.
         #print('input x',x.shape)
-        #x = self.conv_shared(x)
-        if level == 0:
-            x = self.conv_shared0(x)
-        if level == 1:
-            x = self.conv_shared1(x)
-        if level == 2:
-            x = self.conv_shared2(x)
-        if level == 3:
-            x = self.conv_shared3(x)
-        if level == 4:
-            x = self.conv_shared4(x)
+        x = self.conv_shared(x)
         #print('shared x',x.shape)
 
         # Anchor Score. (batch, anchors per location * 2, y, x, (z)).
@@ -125,11 +109,11 @@ class Classifier(nn.Module):
         # instance_norm does not work with spatial dims (1, 1, (1))
         norm = cf.norm if cf.norm != 'instance_norm' else None#None
         if 'fpn' in cf.backbone_path:
-            self.temp_end_filter = cf.end_filts[cf.pyramid_levels[0]] * 4
-            self.conv1 = conv(cf.end_filts[cf.pyramid_levels[0]], self.temp_end_filter, ks=self.pool_size, stride=1, norm=norm, relu=cf.relu)
+            self.temp_end_filter = cf.end_filts * 4
         if 'vnet' in cf.backbone_path:
-            self.temp_end_filter = cf.end_filts[cf.pyramid_levels[0]]
-            self.conv1 = conv(self.temp_end_filter, self.temp_end_filter, ks=self.pool_size, stride=1, norm=norm, relu=cf.relu)
+            self.temp_end_filter = cf.end_filts
+
+        self.conv1 = conv(cf.end_filts, self.temp_end_filter , ks=self.pool_size, stride=1, norm=norm, relu=cf.relu)
         self.conv2 = conv(self.temp_end_filter, self.temp_end_filter, ks=1, stride=1, norm=norm, relu=cf.relu)
         self.linear_class = nn.Linear(self.temp_end_filter, cf.head_classes)
         self.linear_bbox = nn.Linear(self.temp_end_filter, cf.head_classes * 2 * self.dim)
@@ -149,11 +133,12 @@ class Classifier(nn.Module):
         :return: mrcnn_bbox (n_proposals, n_head_classes, 2 * dim) predicted corrections to be applied to proposals for refinement.
         """
         #print('in classifier')
+        #print('x',x.shape)
         #print('before roi_align',len(x))
         #for xx in x:
         #    print('x',xx.shape)
         x = pyramid_roi_align(x, rois, self.pool_size, self.pyramid_levels, self.dim)
-        print('after roi_align',x.shape)
+        #print('after roi_align',x.shape)
         x = self.conv1(x)
         #print('after conv1',x.shape)
         x = self.conv2(x)
@@ -185,30 +170,17 @@ class Mask(nn.Module):
         #print('cf.end_filts',cf.end_filts)
         #print('cf.norm',cf.norm)
         #print('cf.relu',cf.relu)
-        #self.conv1 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)#36
-        #self.conv2 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
-        #self.conv3 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
-        #self.conv4 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
-        #if conv.dim == 2:
-        #    self.deconv = nn.ConvTranspose2d(cf.end_filts, cf.end_filts, kernel_size=2, stride=2)
-        #else:
-        #    self.deconv = nn.ConvTranspose3d(cf.end_filts, cf.end_filts, kernel_size=2, stride=2)
-
-        #self.relu = nn.ReLU(inplace=True) if cf.relu == 'relu' else nn.LeakyReLU(inplace=True)
-        #self.conv5 = conv(cf.end_filts, cf.head_classes, ks=1, stride=1, relu=None)
-        #self.sigmoid = nn.Sigmoid()
-        mask_channel = cf.end_filts[cf.pyramid_levels[0]]
-        self.conv1 = conv(mask_channel, mask_channel, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)#36
-        self.conv2 = conv(mask_channel, mask_channel, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
-        self.conv3 = conv(mask_channel, mask_channel, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
-        self.conv4 = conv(mask_channel, mask_channel, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
+        self.conv1 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)#36
+        self.conv2 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
+        self.conv3 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
+        self.conv4 = conv(cf.end_filts, cf.end_filts, ks=3, stride=1, pad=1, norm=cf.norm, relu=cf.relu)
         if conv.dim == 2:
-            self.deconv = nn.ConvTranspose2d(mask_channel, mask_channel, kernel_size=2, stride=2)
+            self.deconv = nn.ConvTranspose2d(cf.end_filts, cf.end_filts, kernel_size=2, stride=2)
         else:
-            self.deconv = nn.ConvTranspose3d(mask_channel, mask_channel, kernel_size=2, stride=2)
+            self.deconv = nn.ConvTranspose3d(cf.end_filts, cf.end_filts, kernel_size=2, stride=2)
 
         self.relu = nn.ReLU(inplace=True) if cf.relu == 'relu' else nn.LeakyReLU(inplace=True)
-        self.conv5 = conv(mask_channel, cf.head_classes, ks=1, stride=1, relu=None)
+        self.conv5 = conv(cf.end_filts, cf.head_classes, ks=1, stride=1, relu=None)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x, rois):
@@ -219,11 +191,11 @@ class Mask(nn.Module):
         have been merged to one vector, while the origin info has been stored for re-allocation.
         :return: x: masks (n_sampled_proposals (n_detections in inference), n_classes, y, x, (z))
         """
-        #print('in Mask')
-        #for xx in x:
-        #    print('feature map',xx.shape)
+        print('in Mask')
+        for xx in x:
+            print('feature map',xx.shape)
         x = pyramid_roi_align(x, rois, self.pool_size, self.pyramid_levels, self.dim)
-        print('after pyramid_roi_align',x.shape)
+        #print('after pyramid_roi_align',x.shape)
         x = self.conv1(x)
         #print('conv1 x',x.shape)
         x = self.conv2(x)
@@ -251,21 +223,19 @@ class OutputTransition(nn.Module):
         self.conv2 = nn.Conv3d(2, 2, kernel_size=1)
 
     def forward(self, x):
-        # convolve 32 down to 2 channels
         out = self.relu1(self.bn1(self.conv1(x)))
         out = self.conv2(out)
-
         return out
+
 class Segnet(nn.Module):
-    """
-    Head network for proposal-based mask segmentation. Performs RoiAlign, some convolutions and applies sigmoid on the
-    output logits to allow for overlapping classes.
-    """
-    def __init__(self, cf, conv):
+    def __init__(self, cf):
+        super(Segnet, self).__init__()
         self.cf = cf
         self.outputblock = OutputTransition(32)
+
     def forward(self,x):
         x = x[0]
+        print('in Segnet')
         output = self.outputblock(x)
         print('output',output.shape)
         return output
@@ -391,7 +361,36 @@ def compute_mrcnn_mask_loss(target_masks, pred_masks, target_class_ids):
         loss = torch.FloatTensor([0]).cuda()
 
     return loss
-
+def compute_vnet_seg_loss(segout_backword,roi_masks):
+    print('in compute_vnet_seg_loss')
+    print('segout_backword',segout_backword.shape)
+    print('segout_backword',segout_backword.max())
+    print('roi_masks',roi_masks.shape)
+    print('roi_masks',roi_masks.max())
+    segout_softmax = torch.nn.Softmax(dim=1)
+    segout_softmax = segout_softmax(segout_backword)
+    print('segout_softmax',segout_softmax.max())
+    vnet_seg_loss = torch.tensor(0.).cuda() 
+    for ii,seg in enumerate(segout_softmax):
+        seg_ = seg[1,:,:,:]
+        gt = roi_masks[ii,0,0,:,:,:]
+        seg_[seg_>0.5] = 1.0
+        seg_[seg_<1] = 0.0
+        #print('seg_',seg_.shape)
+        #print('seg_',seg_.max())
+        #print('gt',gt.shape)
+        gt = torch.from_numpy(gt).float().cuda()
+        #print('gt',gt.max())
+        u =sum(sum(sum(seg_*gt)))
+        #print('u',u)
+        n = sum(sum(sum(seg_))) + sum(sum(sum(gt))) - u
+        #print('n',n)
+        #this_loss =  torch.tensor(1.).cuda()- torch.tensor(2.).cuda()*u/(n+torch.tensor(0.01).cuda())
+        this_loss = 1 - 2 * u/(n + 0.001)
+        vnet_seg_loss = vnet_seg_loss + this_loss 
+    vnet_seg_loss = (vnet_seg_loss)/roi_masks.shape[0]
+    print('vnet_seg_loss',vnet_seg_loss)
+    return vnet_seg_loss
 
 ############################################################
 #  Helper Layers
@@ -510,8 +509,8 @@ def pyramid_roi_align(feature_maps, rois, pool_size, pyramid_levels, dim):
     # Equation 1 in https://arxiv.org/abs/1612.03144. Account for
     # the fact that our coordinates are normalized here.
     # divide sqrt(h*w) by 1 instead image_area.
-    #roi_level = (4 + mutils.log2(torch.sqrt(h*w))).round().int().clamp(pyramid_levels[0], pyramid_levels[-1])#this roi from which feature level
-    roi_level = (4 + mutils.log2(torch.sqrt(h*w))).round().int().clamp(pyramid_levels[0], pyramid_levels[0])#this roi from which feature level
+    roi_level = (4 + mutils.log2(torch.sqrt(h*w))).round().int().clamp(pyramid_levels[0], pyramid_levels[-1])#this roi from which feature level
+    #print('roi_level',roi_level)
     # if Pyramid contains additional level P6, adapt the roi_level assignemnt accordingly.
     if len(pyramid_levels) == 5:
         roi_level[h*w > 0.65] = 5
@@ -977,6 +976,7 @@ class net(nn.Module):
         self.rpn = RPN(self.cf, conv)
         self.classifier = Classifier(self.cf, conv)
         self.mask = Mask(self.cf, conv)#several conv layers
+        self.seg = Segnet(self.cf)
 
 
     def train_forward(self, batch, is_validation=False):
@@ -991,6 +991,9 @@ class net(nn.Module):
                 'monitor_values': dict of values to be monitored.
         """
         img = batch['data']
+        for k in batch.keys():
+            if k == 'roi_masks':
+                print('k',batch[k].shape)
         gt_class_ids = batch['roi_labels']
         #print('gt_class_ids',gt_class_ids)
         gt_boxes = batch['bb_target']
@@ -1007,11 +1010,11 @@ class net(nn.Module):
 
         #forward passes. 1. general forward pass, where no activations are saved in second stage (for performance
         # monitoring and loss sampling). 2. second stage forward pass of sampled rois with stored activations for backprop.
-        rpn_class_logits, rpn_pred_deltas, proposal_boxes, detections, detection_masks = self.forward(img)
+        rpn_class_logits, rpn_pred_deltas, proposal_boxes, detections, detection_masks,segout = self.forward(img)
         # detection and detection masks just used for getresult
         mrcnn_class_logits, mrcnn_pred_deltas, mrcnn_pred_mask, target_class_ids, mrcnn_target_deltas, target_mask,  \
-        sample_proposals = self.loss_samples_forward(gt_class_ids, gt_boxes, gt_masks)
-        #return [sample_logits, sample_boxes, sample_mask, sample_target_class_ids, sample_target_deltas, sample_target_mask, sample_proposals]
+        sample_proposals,segout_backword = self.loss_samples_forward(gt_class_ids, gt_boxes, gt_masks)
+        #return [sample_logits, sample_boxes, sample_mask, sample_target_class_ids, sample_target_deltas, sample_target_mask, sample_proposals,segout_backward]
         # loop over batch for loss
         for b in range(img.shape[0]):
             if len(gt_boxes[b]) > 0:#if tumor is this roi
@@ -1058,6 +1061,7 @@ class net(nn.Module):
         # compute mrcnn losses.
         mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
         mrcnn_bbox_loss = compute_mrcnn_bbox_loss(mrcnn_target_deltas, mrcnn_pred_deltas, target_class_ids)
+        vnet_seg_loss = compute_vnet_seg_loss(segout_backword,batch['roi_masks'])#segout no sigmoid
         # mrcnn can be run without pixelwise annotations available (Faster R-CNN mode).
         # In this case, the mask_loss is taken out of training.
         if not self.cf.frcnn_mode:#default: False
@@ -1065,7 +1069,8 @@ class net(nn.Module):
         else:
             mrcnn_mask_loss = torch.FloatTensor([0]).cuda()
         #print('mrcnn_mask_loss',mrcnn_mask_loss)
-        loss = batch_rpn_class_loss + batch_rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
+        #loss = batch_rpn_class_loss + batch_rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
+        loss = batch_rpn_class_loss + batch_rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + vnet_seg_loss 
 
         # monitor RPN performance: detection count = the number of correctly matched proposals per fg-class.
         dcount = [list(target_class_ids.cpu().data.numpy()).count(c) for c in np.arange(self.cf.head_classes)[1:]]
@@ -1076,7 +1081,7 @@ class net(nn.Module):
 
         results_dict['torch_loss'] = loss
         results_dict['monitor_values'] = {'loss': loss.item(), 'mrcnn_class_loss': mrcnn_class_loss.item()}
-        results_dict['monitor_losses'] = {'mrcnn_class_loss':mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(), 'mrcnn_mask_loss':mrcnn_mask_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item()}
+        results_dict['monitor_losses'] = {'mrcnn_class_loss':mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(), 'mrcnn_mask_loss':vnet_seg_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item()}
 
         results_dict['logger_string'] =  \
             "loss: {0:.2f}, rpn_class: {1:.2f}, rpn_bbox: {2:.2f}, mrcnn_class: {3:.2f}, mrcnn_bbox: {4:.2f}, " \
@@ -1115,17 +1120,16 @@ class net(nn.Module):
         :return: detection_masks: (n_final_detections, n_classes, y, x, (z)) raw molded masks as returned by mask-head.
         """
         # extract features.
-        #fpn_outs = self.fpn(img)
-        fpn_outs = self.featurenet(img)
+        #self.fpn_outs = self.fpn(img)
+        self.fpn_outs = self.featurenet(img)
 
-        rpn_feature_maps = [fpn_outs[i] for i in self.cf.pyramid_levels]
+        rpn_feature_maps = [self.fpn_outs[i] for i in self.cf.pyramid_levels]
         self.mrcnn_feature_maps = rpn_feature_maps
 
         # loop through pyramid layers and apply RPN.
         layer_outputs = []  # list of lists
-        for ii,p in enumerate(rpn_feature_maps):
-            level = self.cf.pyramid_levels[ii]
-            outrpn = self.rpn(p,level)
+        for p in rpn_feature_maps:
+            outrpn = self.rpn(p)
             layer_outputs.append(outrpn)
 
         # concatenate layer outputs.
@@ -1169,7 +1173,10 @@ class net(nn.Module):
         #print('detection_boxes',detection_boxes.shape)
         with torch.no_grad():
             detection_masks = self.mask(self.mrcnn_feature_maps, detection_boxes)
-        return [rpn_pred_logits, rpn_pred_deltas, batch_proposal_boxes, detections, detection_masks]
+            print('detection_masks',detection_masks.shape)
+            segout = self.seg(self.fpn_outs)
+            print('return segout',segout.shape)
+        return [rpn_pred_logits, rpn_pred_deltas, batch_proposal_boxes, detections, detection_masks,segout]
 
 
     def loss_samples_forward(self, batch_gt_class_ids, batch_gt_boxes, batch_gt_masks):
@@ -1206,10 +1213,13 @@ class net(nn.Module):
         if 0 not in sample_proposals.size():
             sample_logits, sample_boxes = self.classifier(self.mrcnn_feature_maps, sample_proposals)
             sample_mask = self.mask(self.mrcnn_feature_maps, sample_proposals)
+            print('sample_mask',sample_mask.shape)
+            segout_backword = self.seg(self.fpn_outs) 
+            print('segout_backword',segout_backword.shape)
         else:
             sample_logits = torch.FloatTensor().cuda()
             sample_boxes = torch.FloatTensor().cuda()
             sample_mask = torch.FloatTensor().cuda()
 
         return [sample_logits, sample_boxes, sample_mask, sample_target_class_ids, sample_target_deltas,
-                sample_target_mask, sample_proposals]
+                sample_target_mask, sample_proposals,segout_backword]

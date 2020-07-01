@@ -43,7 +43,7 @@ class configs(DefaultConfigs):
         # one out of [2, 3]. dimension the model operates in.
         self.dim = 3
 
-        # one out of ['mrcnn', 'retina_net', 'retina_unet', 'detection_unet', 'ufrcnn', 'detection_unet'].
+        # one out of ['mrcnn', 'seg_mrcnn','retina_net', 'retina_unet', 'detection_unet', 'ufrcnn', 'detection_unet'].
         self.model = 'mrcnn'
 
         DefaultConfigs.__init__(self, self.model, server_env, self.dim)
@@ -101,9 +101,9 @@ class configs(DefaultConfigs):
         self.backbone_path = 'models/backbone_vnet.py'
         self.start_filts = 48 if self.dim == 2 else 18
         if 'vnet' in self.backbone_path:
-            self.end_filts = 32#[32,64,128,256,256] 
+            self.end_filts = [32,64,128,256,256] 
         if 'fpn' in self.backbone_path:
-            self.end_filts = self.start_filts * 4 if self.dim == 2 else self.start_filts * 2
+            self.end_filts = [36,36,36,36,36] #self.start_filts * 4 if self.dim == 2 else self.start_filts * 2
         self.res_architecture = 'resnet50' # 'resnet101' , 'resnet50'
         self.norm = None # one of None, 'instance_norm', 'batch_norm'
         self.weight_decay = 0
@@ -117,7 +117,7 @@ class configs(DefaultConfigs):
         self.debug = 0 
         if self.debug == 1:
             self.num_epochs = 2 
-            self.num_train_batches = 2 if self.dim == 2 else 100 
+            self.num_train_batches = 2 if self.dim == 2 else 2 
             self.batch_size = 20 if self.dim == 2 else 2 
         else:
             self.num_epochs = 300
@@ -212,6 +212,7 @@ class configs(DefaultConfigs):
 
         {'detection_unet': self.add_det_unet_configs,
          'mrcnn': self.add_mrcnn_configs,
+         'seg_mrcnn': self.add_mrcnn_configs,
          'ufrcnn': self.add_mrcnn_configs,
          'retina_net': self.add_mrcnn_configs,
          'retina_unet': self.add_mrcnn_configs,
@@ -277,7 +278,7 @@ class configs(DefaultConfigs):
 
         # choose which pyramid levels to extract features from: P2: 0, P3: 1, P4: 2, P5: 3.
         #self.pyramid_levels = [1,2]
-        self.pyramid_levels = [0]
+        self.pyramid_levels = [0,1,2,3,4]
 
         # number of feature maps in rpn. typically lowered in 3D to save gpu-memory.
         self.n_rpn_features = 512 if self.dim == 2 else 128
@@ -334,7 +335,6 @@ class configs(DefaultConfigs):
                   int(np.ceil(self.patch_size[1] / stride))]
                  for stride in self.backbone_strides['xy']])
         else:
-            #if 'fpn' in self.backbone_path:
             self.backbone_shapes = np.array(
                 [[int(np.ceil(self.patch_size[0] / stride)),
                   int(np.ceil(self.patch_size[1] / stride)),

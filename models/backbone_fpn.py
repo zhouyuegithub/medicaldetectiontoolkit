@@ -105,7 +105,7 @@ class FPN(nn.Module):
             self.P1_upsample = Interpolate(scale_factor=(2, 2, 2), mode='trilinear')
             self.P2_upsample = Interpolate(scale_factor=(2, 2, 2), mode='trilinear')
 
-        self.out_channels = cf.end_filts#36
+        self.out_channels = cf.end_filts[0]#36
         self.P5_conv1 = conv(start_filts*32 + cf.n_latent_dims, self.out_channels, ks=1, stride=1, relu=None)#576
         self.P4_conv1 = conv(start_filts*16, self.out_channels, ks=1, stride=1, relu=None)#288
         self.P3_conv1 = conv(start_filts*8, self.out_channels, ks=1, stride=1, relu=None)#144
