@@ -75,8 +75,6 @@ class Predictor:
                 raise RuntimeError('no epoch ranking file in fold directory. '
                                    'seems like you are trying to run testing without prior training...')
             self.n_ens = cf.test_n_epochs
-            if self.cf.test_aug:#False 
-                self.n_ens *= 4
 
 
     def predict_patient(self, batch):

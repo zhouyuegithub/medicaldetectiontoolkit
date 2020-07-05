@@ -20,7 +20,7 @@ import os
 
 class DefaultConfigs:
 
-    def __init__(self, model, server_env=None, dim=3):
+    def __init__(self, model, dim=3):
 
         #########################
         #         I/O           #
@@ -29,7 +29,7 @@ class DefaultConfigs:
         self.model = model
         self.dim = dim
         # int [0 < dataset_size]. select n patients from dataset for prototyping.
-        self.select_prototype_subset = None
+        #self.select_prototype_subset = None
 
         # some default paths.
         #self.backbone_path = 'models/backbone_vnet.py'
@@ -37,8 +37,6 @@ class DefaultConfigs:
         self.input_df_name = 'info_df.pickle'
         self.model_path = 'models/{}.py'.format(self.model)
 
-        if server_env:
-            self.source_dir = '/home/ramien/mdt-public'
 
 
         #########################
@@ -49,7 +47,7 @@ class DefaultConfigs:
         self.seed = 0
 
         #number of threads for multithreaded batch generation.
-        self.n_workers = 16 if server_env else 1
+        #self.n_workers = 16 #if server_env else 1
 
         # if True, segmentation losses learn all categories, else only foreground vs. background.
         self.class_specific_seg_flag = False

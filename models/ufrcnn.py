@@ -20,6 +20,7 @@ published under MIT license.
 """
 
 import utils.model_utils as mutils
+from utils.model_utils import DiceLoss 
 import utils.exp_utils as utils
 from cuda_functions.nms_2D.pth_nms import nms_gpu as nms_2D
 from cuda_functions.nms_3D.pth_nms import nms_gpu as nms_3D
@@ -47,12 +48,18 @@ class RPN(nn.Module):
         super(RPN, self).__init__()
         self.dim = conv.dim
 
-        self.conv_shared = conv(cf.end_filts, cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
+        #self.conv_shared = conv(cf.end_filts, cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
+        self.conv_shared0 = conv(cf.end_filts[0], cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
+        self.conv_shared1 = conv(cf.end_filts[1], cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
+        self.conv_shared2 = conv(cf.end_filts[2], cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
+        self.conv_shared3 = conv(cf.end_filts[3], cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
+        if 'vnet' in cf.backbone_path:
+            self.conv_shared4 = conv(cf.end_filts[4], cf.n_rpn_features, ks=3, stride=cf.rpn_anchor_stride, pad=1, relu=cf.relu)
         self.conv_class = conv(cf.n_rpn_features, 2 * len(cf.rpn_anchor_ratios), ks=1, stride=1, relu=None)
         self.conv_bbox = conv(cf.n_rpn_features, 2 * self.dim * len(cf.rpn_anchor_ratios), ks=1, stride=1, relu=None)
 
 
-    def forward(self, x):
+    def forward(self, x, level):
         """
         :param x: input feature maps (b, in_channels, y, x, (z))
         :return: rpn_class_logits (b, 2, n_anchors)
@@ -61,7 +68,17 @@ class RPN(nn.Module):
         """
 
         # Shared convolutional base of the RPN.
-        x = self.conv_shared(x)
+        #x = self.conv_shared(x)
+        if level == 0:
+            x = self.conv_shared0(x)
+        if level == 1:
+            x = self.conv_shared1(x)
+        if level == 2:
+            x = self.conv_shared2(x)
+        if level == 3:
+            x = self.conv_shared3(x)
+        if level == 4:
+            x = self.conv_shared4(x)
 
         # Anchor Score. (batch, anchors per location * 2, y, x, (z)).
         rpn_class_logits = self.conv_class(x)
@@ -101,14 +118,23 @@ class Classifier(nn.Module):
         # instance_norm does not work with spatial dims (1, 1, (1))
         norm = cf.norm if cf.norm != 'instance_norm' else None
         if 'fpn' in cf.backbone_path:
-            self.temp_end_filter = cf.end_filts * 4
+            self.temp_end_filter = cf.end_filts[cf.pyramid_levels[0]] * 4
+            self.conv1 = conv(cf.end_filts[cf.pyramid_levels[0]], self.temp_end_filter, ks=self.pool_size, stride=1, norm=norm, relu=cf.relu)
         if 'vnet' in cf.backbone_path:
-            self.temp_end_filter = cf.end_filts
-
-        self.conv1 = conv(cf.end_filts, self.temp_end_filter , ks=self.pool_size, stride=1, norm=norm, relu=cf.relu)
+            self.temp_end_filter = cf.end_filts[cf.pyramid_levels[0]]
+            self.conv1 = conv(self.temp_end_filter, self.temp_end_filter, ks=self.pool_size, stride=1, norm=norm, relu=cf.relu)
         self.conv2 = conv(self.temp_end_filter, self.temp_end_filter, ks=1, stride=1, norm=norm, relu=cf.relu)
         self.linear_class = nn.Linear(self.temp_end_filter, cf.head_classes)
         self.linear_bbox = nn.Linear(self.temp_end_filter, cf.head_classes * 2 * self.dim)
+        #if 'fpn' in cf.backbone_path:
+        #    self.temp_end_filter = cf.end_filts * 4
+        #if 'vnet' in cf.backbone_path:
+        #    self.temp_end_filter = cf.end_filts
+
+        #self.conv1 = conv(cf.end_filts, self.temp_end_filter , ks=self.pool_size, stride=1, norm=norm, relu=cf.relu)
+        #self.conv2 = conv(self.temp_end_filter, self.temp_end_filter, ks=1, stride=1, norm=norm, relu=cf.relu)
+        #self.linear_class = nn.Linear(self.temp_end_filter, cf.head_classes)
+        #self.linear_bbox = nn.Linear(self.temp_end_filter, cf.head_classes * 2 * self.dim)
 
 
     def forward(self, x, rois):
@@ -406,10 +432,10 @@ def pyramid_roi_align(feature_maps, rois, pool_size, pyramid_levels, dim):
     # Equation 1 in https://arxiv.org/abs/1612.03144. Account for
     # the fact that our coordinates are normalized here.
     # divide sqrt(h*w) by 1 instead image_area.
-    roi_level = (4 + mutils.log2(torch.sqrt(h*w))).round().int().clamp(pyramid_levels[0], pyramid_levels[-1])
+    roi_level = (4 + mutils.log2(torch.sqrt(h*w))).round().int().clamp(pyramid_levels[0], pyramid_levels[0])
     # if Pyramid contains additional level P6, adapt the roi_level assignemnt accordingly.
-    if len(pyramid_levels) == 5:
-        roi_level[h*w > 0.65] = 5
+    #if len(pyramid_levels) == 5:
+    #    roi_level[h*w > 0.65] = 5
 
     # Loop through levels and apply ROI pooling to each.
     pooled = []
@@ -756,6 +782,7 @@ def get_results(cf, img_shape, detections, seg_logits, box_results_list=None):
     else:
         # output label maps for retina_unet.
         results_dict['seg_preds'] = F.softmax(seg_logits, 1).argmax(1).cpu().data.numpy()[:, np.newaxis].astype('uint8')
+        results_dict['seg_logits'] = seg_logits
 
     return results_dict
 
@@ -799,13 +826,14 @@ class net(nn.Module):
         self.np_anchors = mutils.generate_pyramid_anchors(self.logger, self.cf)
         self.anchors = torch.from_numpy(self.np_anchors).float().cuda()
         if 'fpn' in self.cf.backbone_path:
-            self.featurenet = backbone.FPN(self.cf, conv)
+            self.featurenet = backbone.FPN(self.cf, conv,operate_stride1 = self.cf.operate_stride1)
+            self.final_conv = conv(36, self.cf.num_seg_classes, ks=1, pad=0, norm=self.cf.norm, relu=None)
         if 'vnet' in self.cf.backbone_path:
             self.featurenet = backbone.VNet(self.cf)
+            self.final_conv = conv(2, self.cf.num_seg_classes, ks=1, pad=0, norm=self.cf.norm, relu=None)
         self.rpn = RPN(self.cf, conv)
         self.classifier = Classifier(self.cf, conv)
-        self.mask = Mask(self.cf, conv)
-        self.final_conv = conv(32, self.cf.num_seg_classes, ks=1, pad=0, norm=self.cf.norm, relu=None)
+        #self.mask = Mask(self.cf, conv)
 
 
     def train_forward(self, batch, is_validation=False):
@@ -824,9 +852,8 @@ class net(nn.Module):
         gt_class_ids = batch['roi_labels']
         gt_boxes = batch['bb_target']
         axes = (0, 2, 3, 1) if self.cf.dim == 2 else (0, 2, 3, 4, 1)
-        var_seg_ohe = torch.FloatTensor(mutils.get_one_hot_encoding(batch['seg'], self.cf.num_seg_classes)).cuda()
-        var_seg = torch.LongTensor(batch['seg']).cuda()
-
+        var_seg_ohe = torch.FloatTensor(mutils.get_one_hot_encoding(batch['seg'], self.cf.num_seg_classes)).cuda()#channel == 2
+        var_seg = torch.LongTensor(batch['seg']).cuda()#channel == 1
 
         img = torch.from_numpy(img).float().cuda()
         batch_rpn_class_loss = torch.FloatTensor([0]).cuda()
@@ -838,6 +865,7 @@ class net(nn.Module):
         #forward passes. 1. general forward pass, where no activations are saved in second stage (for performance
         # monitoring and loss sampling). 2. second stage forward pass of sampled rois with stored activations for backprop.
         rpn_class_logits, rpn_pred_deltas, proposal_boxes, detections, seg_logits = self.forward(img)
+
         mrcnn_class_logits, mrcnn_pred_deltas, target_class_ids, mrcnn_target_deltas,  \
         sample_proposals = self.loss_samples_forward(gt_class_ids, gt_boxes)
 
@@ -854,9 +882,9 @@ class net(nn.Module):
                 rpn_match, rpn_target_deltas = mutils.gt_anchor_matching(self.cf, self.np_anchors, gt_boxes[b])
 
                 # add positive anchors used for loss to output list for monitoring.
-                pos_anchors = mutils.clip_boxes_numpy(self.np_anchors[np.argwhere(rpn_match == 1)][:, 0], img.shape[2:])
-                for p in pos_anchors:
-                    box_results_list[b].append({'box_coords': p, 'box_type': 'pos_anchor'})
+                #pos_anchors = mutils.clip_boxes_numpy(self.np_anchors[np.argwhere(rpn_match == 1)][:, 0], img.shape[2:])
+                #for p in pos_anchors:
+                #    box_results_list[b].append({'box_coords': p, 'box_type': 'pos_anchor'})
 
             else:
                 rpn_match = np.array([-1]*self.np_anchors.shape[0])
@@ -872,21 +900,21 @@ class net(nn.Module):
             batch_rpn_bbox_loss += rpn_bbox_loss / img.shape[0]
 
             # add negative anchors used for loss to output list for monitoring.
-            neg_anchors = mutils.clip_boxes_numpy(self.np_anchors[np.argwhere(rpn_match == -1)][0, neg_anchor_ix], img.shape[2:])
-            for n in neg_anchors:
-                box_results_list[b].append({'box_coords': n, 'box_type': 'neg_anchor'})
+            #neg_anchors = mutils.clip_boxes_numpy(self.np_anchors[np.argwhere(rpn_match == -1)][0, neg_anchor_ix], img.shape[2:])
+            #for n in neg_anchors:
+            #    box_results_list[b].append({'box_coords': n, 'box_type': 'neg_anchor'})
 
             # add highest scoring proposals to output list for monitoring.
-            rpn_proposals = proposal_boxes[b][proposal_boxes[b, :, -1].argsort()][::-1]
-            for r in rpn_proposals[:self.cf.n_plot_rpn_props, :-1]:
-                box_results_list[b].append({'box_coords': r, 'box_type': 'prop'})
+            #rpn_proposals = proposal_boxes[b][proposal_boxes[b, :, -1].argsort()][::-1]
+            #for r in rpn_proposals[:self.cf.n_plot_rpn_props, :-1]:
+            #    box_results_list[b].append({'box_coords': r, 'box_type': 'prop'})
 
         # add positive and negative roi samples used for mrcnn losses to output list for monitoring.
-        if 0 not in sample_proposals.shape:
-            rois = mutils.clip_to_window(self.cf.window, sample_proposals).cpu().data.numpy()
-            for ix, r in enumerate(rois):
-                box_results_list[int(r[-1])].append({'box_coords': r[:-1] * self.cf.scale,
-                                            'box_type': 'pos_class' if target_class_ids[ix] > 0 else 'neg_class'})
+        #if 0 not in sample_proposals.shape:
+        #    rois = mutils.clip_to_window(self.cf.window, sample_proposals).cpu().data.numpy()
+            #for ix, r in enumerate(rois):
+            #    box_results_list[int(r[-1])].append({'box_coords': r[:-1] * self.cf.scale,
+            #                                'box_type': 'pos_class' if target_class_ids[ix] > 0 else 'neg_class'})
 
         batch_rpn_class_loss = batch_rpn_class_loss
         batch_rpn_bbox_loss = batch_rpn_bbox_loss
@@ -901,13 +929,19 @@ class net(nn.Module):
         #     mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, mrcnn_pred_mask, target_class_ids)
         # else:
         #     mrcnn_mask_loss = torch.FloatTensor([0]).cuda()
-
+        #soft_seg = F.softmax(seg_logits,dim=1)
+        #print('soft_seg',soft_seg.shape)
+        #print('var_seg_ohe',var_seg_ohe.shape)
+        #print('soft_seg',soft_seg.max())
+        #print('soft_seg',soft_seg.min())
         seg_loss_dice = 1 - mutils.batch_dice(F.softmax(seg_logits, dim=1), var_seg_ohe)
-        seg_loss_ce = F.cross_entropy(seg_logits, var_seg[:, 0])
-
-        #loss = batch_rpn_class_loss + batch_rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + (seg_loss_dice + seg_loss_ce) / 2
-        loss = batch_rpn_class_loss + batch_rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss
-
+        #seg_loss_ce = F.cross_entropy(seg_logits, var_seg[:, 0])
+        print('seg_loss_dice',seg_loss_dice)
+        mydice = DiceLoss()
+        seg_loss_dice_my = mydice(F.softmax(seg_logits,dim=1),var_seg_ohe)
+        print('seg_loss_dice_my',seg_loss_dice_my)
+        loss = seg_loss_dice_my
+        seg_loss_dice = seg_loss_dice_my
         # monitor RPN performance: detection count = the number of correctly matched proposals per fg-class.
         dcount = [list(target_class_ids.cpu().data.numpy()).count(c) for c in np.arange(self.cf.head_classes)[1:]]
 
@@ -915,11 +949,11 @@ class net(nn.Module):
         results_dict = get_results(self.cf, img.shape, detections, seg_logits, box_results_list)
         results_dict['torch_loss'] = loss
         results_dict['monitor_values'] = {'loss': loss.item(), 'class_loss': mrcnn_class_loss.item()}
+        results_dict['monitor_losses'] = {'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item(),'mrcnn_class_loss':mrcnn_class_loss.item(),'mrcnn_bbox_loss':mrcnn_bbox_loss.item(),'seg_loss_dice':seg_loss_dice.item()}
         results_dict['logger_string'] = "loss: {0:.2f}, rpn_class: {1:.2f}, rpn_bbox: {2:.2f}, mrcnn_class: {3:.2f}, " \
                                         "mrcnn_bbox: {4:.2f}, dice_loss: {5:.2f}, dcount {6}"\
             .format(loss.item(), batch_rpn_class_loss.item(), batch_rpn_bbox_loss.item(), mrcnn_class_loss.item(),
                     mrcnn_bbox_loss.item(), seg_loss_dice.item(), dcount)
-        results_dict['monitor_losses'] = {'mrcnn_class_loss':mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item()}
 
         return results_dict
 
@@ -953,15 +987,25 @@ class net(nn.Module):
         """
         # extract features.
         fpn_outs = self.featurenet(img)
-        seg_logits = self.final_conv(fpn_outs[0])
-        #rpn_feature_maps = [fpn_outs[i + 1] for i in self.cf.pyramid_levels]
-        rpn_feature_maps = [fpn_outs[i] for i in self.cf.pyramid_levels]
+        if 'vnet' in self.cf.backbone_path:
+            seg_logits = fpn_outs[0]#channel = 2
+            seg_logits_final = self.final_conv(seg_logits)
+        if 'fpn' in self.cf.backbone_path:
+            seg_logits = self.final_conv(fpn_outs[0])
+        #print('seg_logits',seg_logits.shape)
+        #print('seg_logits max',seg_logits.max())
+        rpn_feature_maps = [fpn_outs[i + 1] for i in self.cf.pyramid_levels]
+        #rpn_feature_maps = [fpn_outs[i] for i in self.cf.pyramid_levels]
         self.mrcnn_feature_maps = rpn_feature_maps
+        #for ff in self.mrcnn_feature_maps:
+        #    print('ff',ff.shape)
 
         # loop through pyramid layers and apply RPN.
         layer_outputs = []  # list of lists
-        for p in rpn_feature_maps:
-            layer_outputs.append(self.rpn(p))
+        for ii,p in enumerate(rpn_feature_maps):
+            level = self.cf.pyramid_levels[ii]
+            outrpn = self.rpn(p,level)
+            layer_outputs.append(outrpn)
 
         # concatenate layer outputs.
         # convert from list of lists of level outputs to list of lists of outputs across levels.
@@ -969,10 +1013,14 @@ class net(nn.Module):
         outputs = list(zip(*layer_outputs))
         outputs = [torch.cat(list(o), dim=1) for o in outputs]
         rpn_pred_logits, rpn_pred_probs, rpn_pred_deltas = outputs
+        #print('rpn_pred_probs',rpn_pred_logits.shape)
+        #print('rpn_pred_deltas',rpn_pred_deltas.shape)
 
         # generate proposals: apply predicted deltas to anchors and filter by foreground scores from RPN classifier.
         proposal_count = self.cf.post_nms_rois_training if is_training else self.cf.post_nms_rois_inference
         batch_rpn_rois, batch_proposal_boxes = proposal_layer(rpn_pred_probs, rpn_pred_deltas, proposal_count, self.anchors, self.cf)
+        #print('batch_rpn_rois',batch_rpn_rois.shape)
+        #print('batch_proposal_boxes',batch_proposal_boxes.shape)
 
         # merge batch dimension of proposals while storing allocation info in coordinate dimension.
         batch_ixs = torch.from_numpy(np.repeat(np.arange(batch_rpn_rois.shape[0]), batch_rpn_rois.shape[1])).float().cuda()
@@ -993,9 +1041,11 @@ class net(nn.Module):
         batch_mrcnn_class_logits = torch.cat(class_logits_list, 0)
         batch_mrcnn_bbox = torch.cat(bboxes_list, 0)
         self.batch_mrcnn_class_scores = F.softmax(batch_mrcnn_class_logits, dim=1)
-
+        #print('batch_mrcnn_class_scores',self.batch_mrcnn_class_scores.shape)
+        #print('batch_mrcnn_bbox',batch_mrcnn_bbox.shape)
         # refine classified proposals, filter and return final detections.
         detections = refine_detections(rpn_rois, self.batch_mrcnn_class_scores, batch_mrcnn_bbox, batch_ixs, self.cf, )
+        #print('detections',detections.shape)
 
         return [rpn_pred_logits, rpn_pred_deltas, batch_proposal_boxes, detections, seg_logits]
 
@@ -1019,6 +1069,9 @@ class net(nn.Module):
         sample_ix, sample_target_class_ids, sample_target_deltas = \
             detection_target_layer(self.rpn_rois_batch_info, self.batch_mrcnn_class_scores,
                                    batch_gt_class_ids, batch_gt_boxes, self.cf)
+        #print('sample_ix',sample_ix.shape)
+        #print('sample_target_class_ids',sample_target_class_ids.shape)
+        #print('sample_target_deltas',sample_target_deltas.shape)
 
         # re-use feature maps and RPN output from first forward pass.
         sample_proposals = self.rpn_rois_batch_info[sample_ix]
@@ -1027,5 +1080,6 @@ class net(nn.Module):
         else:
             sample_logits = torch.FloatTensor().cuda()
             sample_boxes = torch.FloatTensor().cuda()
-
+        #print('sample_logits',sample_logits.shape)
+        #print('sample_boxes',sample_boxes.shape)
         return [sample_logits, sample_boxes, sample_target_class_ids, sample_target_deltas, sample_proposals]

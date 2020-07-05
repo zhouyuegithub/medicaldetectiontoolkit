@@ -51,7 +51,7 @@ class FPN(nn.Module):
             self.C0 = nn.Sequential(conv(cf.n_channels, start_filts, ks=3, pad=1, norm=cf.norm, relu=cf.relu),
                                     conv(start_filts, start_filts, ks=3, pad=1, norm=cf.norm, relu=cf.relu))
 
-            self.C1 = conv(start_filts, start_filts, ks=7, stride=(2, 2, 1) if conv.dim == 3 else 2, pad=3, norm=cf.norm, relu=cf.relu)
+            self.C1 = conv(start_filts, start_filts, ks=7, stride=(2, 2, 2) if conv.dim == 3 else 2, pad=3, norm=cf.norm, relu=cf.relu)
 
         else:
             self.C1 = conv(cf.n_channels, start_filts, ks=7, stride=(2, 2, 2) if conv.dim == 3 else 2, pad=3, norm=cf.norm, relu=cf.relu)#1,18,None,'relu'
@@ -180,17 +180,24 @@ class FPN(nn.Module):
             p6_out = self.P6_conv2(p6_pre_out)
             out_list.append(p6_out)
 
-        if self.operate_stride1:#False
-            p1_pre_out = self.P1_conv1(c1_out) + self.P2_upsample(p2_pre_out)
-            p0_pre_out = self.P0_conv1(c0_out) + self.P1_upsample(p1_pre_out)
-            # p1_out = self.P1_conv2(p1_pre_out) # usually not needed.
-            p0_out = self.P0_conv2(p0_pre_out)
-            out_list = [p0_out] + out_list
+        #if self.operate_stride1:
+        #if self.cf.seg_flag == True:
+        #print('c1_out',c1_out.shape)
+        #print('p2_pre_out',p2_pre_out.shape)
+        p1_pre_out = self.P1_conv1(c1_out) + self.P2_upsample(p2_pre_out)
+        #print('p1_pre_out',p1_pre_out.shape)
+        #print('c0_out',c0_out.shape)
+        #print('P1_upsample',self.P1_upsample(p1_pre_out).shape)
+        #print('P0_conv1',self.P0_conv1(c0_out).shape)
+        p0_pre_out = self.P0_conv1(c0_out) + self.P1_upsample(p1_pre_out)
+        # p1_out = self.P1_conv2(p1_pre_out) # usually not needed.
+        p0_out = self.P0_conv2(p0_pre_out)
+        out_list = [p0_out] + out_list
         #print('out_list',len(out_list))
-        #print('level 2',out_list[0].shape)
-        #print('level 3',out_list[1].shape)
-        #print('level 4',out_list[2].shape)
-        #print('level 5',out_list[3].shape)
+        #print('level 0',out_list[0].shape)
+        #print('level 1',out_list[1].shape)
+        #print('level 2',out_list[2].shape)
+        #print('level 3',out_list[3].shape)
         return out_list
 
 

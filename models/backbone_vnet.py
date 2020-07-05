@@ -144,8 +144,10 @@ class VNet(nn.Module):
         outup128 = self.up_tr128(outup256, out64)
         outup64 = self.up_tr64(outup128, out32)
         outup32 = self.up_tr32(outup64, out16)
-        out16 = self.out_tr(outup32)
+        outmap = self.out_tr(outup32)
         output = []
+        #if self.cf.seg_flag == True:
+        output.append(outmap)
         output.append(outup32)
         output.append(outup64)
         output.append(outup128)

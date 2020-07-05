@@ -46,7 +46,8 @@ def get_logger(exp_dir):
 
 
 
-def prep_exp(dataset_path, exp_path, server_env, use_stored_settings=True, is_training=True):
+#def prep_exp(dataset_path, exp_path, server_env, use_stored_settings=True, is_training=True):
+def prep_exp(exp_path, is_training=True):
     """
     I/O handling, creating of experiment folder structure. Also creates a snapshot of configs/model scripts and copies them to the exp_dir.
     This way the exp_dir contains all info needed to conduct an experiment, independent to changes in actual source code. Thus, training/inference of this experiment can be started at anytime. Therefore, the model script is copied back to the source code dir as tmp_model (tmp_backbone).
@@ -65,64 +66,41 @@ def prep_exp(dataset_path, exp_path, server_env, use_stored_settings=True, is_tr
         if not os.path.exists(exp_path):
             os.mkdir(exp_path)
             os.mkdir(os.path.join(exp_path, 'plots'))
-            subprocess.call('cp {} {}'.format(os.path.join(dataset_path, 'configs.py'), os.path.join(exp_path, 'configs.py')), shell=True)
-            subprocess.call('cp {} {}'.format('default_configs.py', os.path.join(exp_path, 'default_configs.py')), shell=True)
+            #subprocess.call('cp {} {}'.format(os.path.join(dataset_path, 'configs.py'), os.path.join(exp_path, 'configs.py')), shell=True)
+            #subprocess.call('cp {} {}'.format( 'configs.py', os.path.join(exp_path, 'configs.py')), shell=True)
+            #subprocess.call('cp {} {}'.format('default_configs.py', os.path.join(exp_path, 'default_configs.py')), shell=True)
 
-
-        if use_stored_settings:
-            subprocess.call('cp {} {}'.format('default_configs.py', os.path.join(exp_path, 'default_configs.py')), shell=True)
-            cf_file = import_module('cf', os.path.join(exp_path, 'configs.py'))
-            cf = cf_file.configs(server_env)
-            # only the first process copies the model selcted in configs to exp_path.
-            if not os.path.isfile(os.path.join(exp_path, 'model.py')):
-                subprocess.call('cp {} {}'.format(cf.model_path, os.path.join(exp_path, 'model.py')), shell=True)
-                subprocess.call('cp {} {}'.format(os.path.join(cf.backbone_path), os.path.join(exp_path, 'backbone.py')), shell=True)
-
-            # copy the snapshot model scripts from exp_dir back to the source_dir as tmp_model / tmp_backbone.
-            #tmp_model_path = os.path.join(cf.source_dir, 'models', 'tmp_model.py')
-            #tmp_backbone_path = os.path.join(cf.source_dir, 'models', 'tmp_backbone.py')
-            #subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'model.py'), tmp_model_path), shell=True)
-            #subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'backbone.py'), tmp_backbone_path), shell=True)
-            cf.model_path = tmp_model_path
-            cf.backbone_path = tmp_backbone_path
-
-        else:
+        #else:
             # run training with source code info and copy snapshot of model to exp_dir for later testing (overwrite scripts if exp_dir already exists.)
-            cf_file = import_module('cf', os.path.join(dataset_path, 'configs.py'))
-            cf = cf_file.configs(server_env)
-            subprocess.call('cp {} {}'.format(cf.model_path, os.path.join(exp_path, 'model.py')), shell=True)
-            subprocess.call('cp {} {}'.format(cf.backbone_path, os.path.join(exp_path, 'backbone.py')), shell=True)
-            subprocess.call('cp {} {}'.format('default_configs.py', os.path.join(exp_path, 'default_configs.py')), shell=True)
-            subprocess.call('cp {} {}'.format(os.path.join(dataset_path, 'configs.py'), os.path.join(exp_path, 'configs.py')), shell=True)
+        cf_file = import_module('cf','configs.py')
+        cf = cf_file.configs()
+        cf.exp_dir = exp_path
+        subprocess.call('cp {} {}'.format(cf.model_path, os.path.join(exp_path, 'model.py')), shell=True)
+        subprocess.call('cp {} {}'.format(cf.backbone_path, os.path.join(exp_path, cf.backbone_path.split('/')[-1])), shell=True)
+        subprocess.call('cp {} {}'.format('default_configs.py', os.path.join(exp_path, 'default_configs.py')), shell=True)
+        subprocess.call('cp {} {}'.format('configs.py', os.path.join(exp_path, 'configs.py')), shell=True)
 
     else:
         # for testing, copy the snapshot model scripts from exp_dir back to the source_dir as tmp_model / tmp_backbone.
-        cf_file = import_module('cf', os.path.join(dataset_path, 'configs.py'))
-        cf = cf_file.configs(server_env)
-        #print('exp_path',exp_path)
-        #print('dataset_path',dataset_path)
-        #print('source_dir',cf.source_dir)
-        #tmp_model_path = os.path.join(cf.source_dir, 'models', 'tmp_model.py')
-        tmp_model_path = os.path.join(cf.source_dir, 'models', cf.model+'.py')
-        #print('tmp_model_path',tmp_model_path)
-        #tmp_backbone_path = os.path.join(cf.source_dir, 'models', 'tmp_backbone.py')
-        tmp_backbone_path = os.path.join(cf.source_dir, cf.backbone_path)
-        #print('tmp_backbone_path',tmp_backbone_path)
-        #subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'model.py'), tmp_model_path), shell=True)
-        #subprocess.call('cp {} {}'.format(os.path.join(exp_path, 'backbone.py'), tmp_backbone_path), shell=True)
+        cf_file = import_module('cf', os.path.join(exp_path, 'configs.py'))
+        cf = cf_file.configs()
+        tmp_model_path = os.path.join(exp_path, 'model.py')
+        bp = os.listdir(exp_path)
+        for bpp in bp:
+            if 'backbone' in bpp:
+                tmp_backbone_path = os.path.join(exp_path,bpp)
         cf.model_path = tmp_model_path
         cf.backbone_path = tmp_backbone_path
+        cf.exp_dir = exp_path
+        cf.test_dir = os.path.join(cf.exp_dir, 'test')
+        cf.plot_dir = os.path.join(cf.exp_dir, 'plots')
+        if not os.path.exists(cf.test_dir):
+            os.makedirs(cf.test_dir)
+        if not os.path.exists(cf.plot_dir):
+            os.makedirs(cf.plot_dir)
 
-    cf.exp_dir = exp_path
-    cf.test_dir = os.path.join(cf.exp_dir, 'test')
-    cf.plot_dir = os.path.join(cf.exp_dir, 'plots')
     cf.experiment_name = exp_path.split("/")[-1]
-    cf.server_env = server_env
     cf.created_fold_id_pickle = False
-    if not os.path.exists(cf.test_dir):
-        os.makedirs(cf.test_dir)
-    if not os.path.exists(cf.plot_dir):
-        os.makedirs(cf.plot_dir)
 
     return cf
 
@@ -167,20 +145,13 @@ class ModelSelector:
 
     def run_model_selection(self, net, optimizer, monitor_metrics, epoch):
 
-        #print('in run_model_selection')
         # take the mean over all selection criteria in each epoch
         non_nan_scores = np.mean(np.array([[0 if ii is None else ii for ii in monitor_metrics['val'][sc]] for sc in self.cf.model_selection_criteria]), 0)
-        #print('non_nan_scores',non_nan_scores)
-        #for sc in self.cf.model_selection_criteria:
-        #    for ii in monitor_metrics['val'][sc]:
-        #        print('ii',ii)
         epochs_scores = [ii for ii in non_nan_scores[1:]]
-        #print('epochs_scores',epochs_scores)
         # ranking of epochs according to model_selection_criterion
         epoch_ranking = np.argsort(epochs_scores)[::-1] + 1 #epochs start at 1
         # if set in configs, epochs < min_save_thresh are discarded from saving process.
         epoch_ranking = epoch_ranking[epoch_ranking >= self.cf.min_save_thresh]#0
-        #print('epoch_ranking',epoch_ranking)
         # check if current epoch is among the top-k epchs.
         if epoch in epoch_ranking[:self.cf.save_n_models]:
 
@@ -213,7 +184,6 @@ class ModelSelector:
         save_dir = os.path.join(self.cf.fold_dir, 'last_checkpoint'.format(epoch))
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
-        print('seve last dir',save_dir)
         torch.save(state, os.path.join(save_dir, 'params.pth'))
         np.save(os.path.join(save_dir, 'epoch_ranking'), epoch_ranking[:self.cf.save_n_models])
         with open(os.path.join(save_dir, 'monitor_metrics.pickle'), 'wb') as handle:
@@ -259,6 +229,7 @@ def prepare_monitoring(cf):
     metrics['train']['train_percision'] = [None]
     metrics['val']['val_recall'] = [None]
     metrics['val']['val_percision'] = [None]
+    metrics['val']['val_seg_dice'] = [None]
     metrics['train']['monitor_values'] = [[] for _ in range(cf.num_epochs + 1)]
     metrics['val']['monitor_values'] = [[] for _ in range(cf.num_epochs + 1)]
 

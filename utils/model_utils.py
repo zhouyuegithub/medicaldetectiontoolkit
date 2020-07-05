@@ -19,6 +19,7 @@ Parts are based on https://github.com/multimodallearning/pytorch-mask-rcnn
 published under MIT license.
 """
 
+from torch.nn import functional as F
 import numpy as np
 import scipy.misc
 import scipy.ndimage
@@ -290,8 +291,8 @@ def generate_pyramid_anchors(logger, cf):
     ratios = cf.rpn_anchor_ratios
     feature_shapes = cf.backbone_shapes#FPN feature shape
     anchor_stride = cf.rpn_anchor_stride#1
-    pyramid_levels = cf.pyramid_levels#[0,1,2,3]
-    feature_strides = cf.backbone_strides#[4,8,16,32]
+    pyramid_levels = cf.pyramid_levels
+    feature_strides = cf.backbone_strides
 
     anchors = []
     logger.info("feature map shapes: {}".format(feature_shapes))
@@ -540,10 +541,8 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
     # for mrcnn: anchor matching is done for RPN loss, so positive labels are all 1 (foreground)
     if gt_class_ids is None:
         gt_class_ids = np.array([1] * len(gt_boxes))
-    #print('gt_class_ids',gt_class_ids)
     # Compute overlaps [num_anchors, num_gt_boxes]
     overlaps = compute_overlaps(anchors, gt_boxes)
-    #print('overlaps',overlaps.shape)
 
     # Match anchors to GT Boxes
     # If an anchor overlaps a GT box with IoU >= anchor_matching_iou then it's positive.
@@ -557,8 +556,6 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
     # matched to them. Skip boxes in crowd areas.
     anchor_iou_argmax = np.argmax(overlaps, axis=1)
     anchor_iou_max = overlaps[np.arange(overlaps.shape[0]), anchor_iou_argmax]
-    #print('anchor_iou_argmax',anchor_iou_argmax.shape)
-    #print('anchor_iou_max',anchor_iou_max.shape)
     if anchors.shape[1] == 4:
         anchor_class_matches[(anchor_iou_max < 0.1)] = -1
     elif anchors.shape[1] == 6:
@@ -568,10 +565,7 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
 
     # 2. Set an anchor for each GT box (regardless of IoU value).
     gt_iou_argmax = np.argmax(overlaps, axis=0)
-    #print('gt_iou_argmax',gt_iou_argmax.shape)
     for ix, ii in enumerate(gt_iou_argmax):
-        #print('ii',ii)
-        #print('gt',gt_class_ids[ix])
         anchor_class_matches[ii] = gt_class_ids[ix]
 
     # 3. Set anchors with high overlap as positive.
@@ -589,14 +583,9 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
     # Leave all negative proposals negative now and sample from them in online hard example mining.
     # For positive anchors, compute shift and scale needed to transform them to match the corresponding GT boxes.
     ids = np.where(anchor_class_matches > 0)[0]
-    #ids_ = np.where(anchor_class_matches>0)
-    #print('ids_',ids_)
-    #print('ids',ids)
     ix = 0  # index into anchor_delta_targets
     for i, a in zip(ids, anchors[ids]):
         # closest gt box (it might have IoU < anchor_matching_iou)
-        #print('a',a)
-        #print('ix',ix)
         gt = gt_boxes[anchor_iou_argmax[i]]
 
         # convert coordinates to center plus width/height.
@@ -636,8 +625,6 @@ def gt_anchor_matching(cf, anchors, gt_boxes, gt_class_ids=None):
         # normalize.
         anchor_delta_targets[ix] /= cf.rpn_bbox_std_dev
         ix += 1
-    #print('anchor_delta_targets',anchor_delta_targets.shape)
-    #print('anchor_class_matches',anchor_class_matches.shape)
     return anchor_class_matches, anchor_delta_targets
 
 
@@ -852,7 +839,7 @@ def sum_tensor(input, axes, keepdim=False):
 
 
 
-def batch_dice(pred, y, false_positive_weight=1.0, smooth=1e-6):
+def batch_dice(pred, y, false_positive_weight=0.7, smooth=1e-6,showdice=False):
     '''
     compute soft dice over batch. this is a differentiable score and can be used as a loss function.
     only dice scores of foreground classes are returned, since training typically
@@ -864,6 +851,8 @@ def batch_dice(pred, y, false_positive_weight=1.0, smooth=1e-6):
     reduces the penalty for false-positive pixels. Can be beneficial sometimes in data with heavy fg/bg imbalances.
     :return: soft dice score (float). This function discards the background score and returns the mean of foreground scores.
     '''
+    print('y',y.min())
+    print('y',y.max())
     if len(pred.size()) == 4:
         axes = (0, 2, 3)
         intersect = sum_tensor(pred * y, axes, keepdim=False)
@@ -874,7 +863,16 @@ def batch_dice(pred, y, false_positive_weight=1.0, smooth=1e-6):
         axes = (0, 2, 3, 4)
         intersect = sum_tensor(pred * y, axes, keepdim=False)
         denom = sum_tensor(false_positive_weight*pred + y, axes, keepdim=False)
-        return torch.mean(( (2*intersect + smooth) / (denom + smooth) )[1:]) # only fg dice here.
+        fg_dice = torch.mean(( (2*intersect + smooth) / (denom + smooth) )[1:]) # only fg dice here.
+
+        intersect = sum_tensor((1-pred) * (1-y), axes, keepdim=False)
+        denom = sum_tensor((1-false_positive_weight)*(1-pred) + (1-y), axes, keepdim=False)
+        bg_dice = torch.mean(( (2*intersect + smooth) / (denom + smooth) )[1:]) # only fg dice here.
+
+        if showdice == False:
+            return (fg_dice+bg_dice) / 2
+        if showdice == True:
+            return fg_dice
 
     else:
         raise ValueError('wrong input dimension in dice loss')
@@ -911,3 +909,22 @@ def batch_dice_mask(pred, y, mask, false_positive_weight=1.0, smooth=1e-6):
 
     else:
         raise ValueError('wrong input dimension in dice loss')
+
+
+def dice_val(pre, gt):
+    num_classes = pre.shape[1]
+    # get one hot ground truth
+    if pre.shape[1] == 2:
+        pre = pre[:,1:2,:,:,:].float()
+    if pre.shape[1] == 1:
+        pre = pre.float()
+    gt = gt[:,1:2,:,:,:].float()
+    pre[pre>0.5] = 1
+    pre[pre<1] = 0
+    # dice loss
+    eps = 1e-6
+    dims = (0,) + tuple(range(2, gt.ndimension())) # (0, 2, 3, 4)
+    intersection = torch.sum(pre * gt, dims)
+    cardinality = torch.sum(pre + gt, dims)
+    dice = (2. * intersection / (cardinality + eps))
+    return dice 

@@ -128,21 +128,31 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
     """
     #print('in ploting image')
     data = batch['data']
-    segs = batch['seg']
     pids = batch['pid']
+    segs = batch['seg']
+    #roimask =np.squeeze(batch['roi_masks'],axis=1)
+    #dif = segs-roimask
+    #print('sum dif',sum(sum(sum(sum(dif)))))#sum(dif))
     # for 3D, repeat pid over batch elements.
     if len(set(pids)) == 1:
         pids = [pids] * data.shape[0]
-
+    #if cf.seg_flag == True:
+    #    seg_preds = results_dict['seg_logits'].cpu().detach().numpy()
+    #else:
+    #    seg_preds = results_dict['seg_preds']
     seg_preds = results_dict['seg_preds']
+    seg_preds_vnet = results_dict['seg_logits'][:,1:2,:,:,:].cpu().detach().numpy()
+    seg_preds_vnet[seg_preds_vnet>0.5] = 1
+    seg_preds_vnet[seg_preds_vnet<1] = 0
     roi_results = deepcopy(results_dict['boxes'])#len == batch size
     # Randomly sampled one patient of batch and project data into 2D slices for plotting.
     if cf.dim == 3:
         patient_ix = np.random.choice(data.shape[0])
-        outfile = os.path.join(cf.plot_dir, 'pred_example_{}_{}_{}.png'.format(mode,cf.fold,pids[patient_ix]))
+        #print('plotting',pids[patient_ix])
         data = np.transpose(data[patient_ix], axes=(3, 0, 1, 2))#128,1,64,128
         # select interesting foreground section to plot.
         gt_boxes = [box['box_coords'] for box in roi_results[patient_ix] if box['box_type'] == 'gt']
+        #print('gt_boxes',gt_boxes)
         if len(gt_boxes) > 0:
             center = int((gt_boxes[0][5]-gt_boxes[0][4])/2+gt_boxes[0][4])
             z_cuts = [np.max((center - 5, 0)), np.min((center + 5, data.shape[0]))]#max len = 10
@@ -164,6 +174,7 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
         data = data[z_cuts[0]: z_cuts[1]]
         segs = np.transpose(segs[patient_ix], axes=(3, 0, 1, 2))[z_cuts[0]: z_cuts[1]]#gt
         seg_preds = np.transpose(seg_preds[patient_ix], axes=(3, 0, 1, 2))[z_cuts[0]: z_cuts[1]]#pred seg
+        seg_preds_vnet = np.transpose(seg_preds_vnet[patient_ix], axes=(3, 0, 1, 2))[z_cuts[0]: z_cuts[1]]#pred seg
         pids = [pids[patient_ix]] * data.shape[0]
 
     try:
@@ -175,7 +186,8 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
                       'Shapes {} vs. {} vs {}'.format(data.shape, segs.shape, seg_preds.shape))
 
 
-    show_arrays = np.concatenate([data, segs, seg_preds, data[:, 0][:, None]], axis=1).astype(float)
+    show_arrays = np.concatenate([data[:,0][:,None], segs, seg_preds,seg_preds_vnet], axis=1).astype(float)
+    #print('show_arrays',show_arrays.shape)
     approx_figshape = (4 * show_arrays.shape[0], 4 * show_arrays.shape[1])
     fig = plt.figure(figsize=approx_figshape)
     gs = gridspec.GridSpec(show_arrays.shape[1] + 1, show_arrays.shape[0])
@@ -188,7 +200,7 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
             if m < show_arrays.shape[1]:#the first row
                 arr = show_arrays[b, m]#get image to be shown
 
-            if m < data.shape[1] or m == show_arrays.shape[1] - 1:#the first row and the forth row data = 10,1,64,128 
+            if m < data.shape[1]:# or m == show_arrays.shape[1] - 1:#the first row and the forth row data = 10,1,64,128 
                 cmap = 'gray'
                 vmin = None
                 vmax = None
@@ -201,50 +213,51 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
                 plt.title('{}'.format(pids[b][:10]), fontsize=8)
 
             ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
-            if m >= (data.shape[1]):#second third forth rows
+            #if m >= (data.shape[1]):#second third forth rows
                 #print('showing image',m)
-                for box in roi_results[b]:
-                    #if box['box_type'] != 'patient_tn_box': # don't plot true negative dummy boxes.
-                    if box['box_type'] == 'det' or box['box_type'] == 'gt':#just show gt and det
-                        coords = box['box_coords']
-                        if box['box_type'] == 'det':
-                            # dont plot background preds or low confidence boxes.
-                            if box['box_pred_class_id'] > 0 and box['box_score'] > cf.source_th:#detected box
-                                plot_text = True
-                                score = np.max(box['box_score'])
-                                score_text = '{}|{:.0f}'.format(box['box_pred_class_id'], score*100)
-                                # if prob detection: plot only boxes from correct sampling instance.
-                                if 'sample_id' in box.keys() and int(box['sample_id']) != m - data.shape[1] - 2:
-                                    continue
-                                # if prob detection: plot reconstructed boxes only in corresponding line.
-                                if not 'sample_id' in box.keys() and  m != data.shape[1] + 1:
-                                    continue
+            for box in roi_results[b]:
+                #if box['box_type'] != 'patient_tn_box': # don't plot true negative dummy boxes.
+                #if box['box_type'] == 'det' or box['box_type'] == 'gt':#just show gt and det
+                coords = box['box_coords']
+                if box['box_type'] == 'det':
+                    # dont plot background preds or low confidence boxes.
+                    if box['box_pred_class_id'] > 0 and box['box_score'] > cf.source_th:#detected box
+                        plot_text = True
+                        score = np.max(box['box_score'])
+                        score_text = '{}|{:.0f}'.format(box['box_pred_class_id'], score*100)
+                        # if prob detection: plot only boxes from correct sampling instance.
+                        if 'sample_id' in box.keys() and int(box['sample_id']) != m - data.shape[1] - 2:
+                            continue
+                        # if prob detection: plot reconstructed boxes only in corresponding line.
+                        if not 'sample_id' in box.keys() and  m != data.shape[1] + 1:
+                            continue
 
-                                score_font_size = 7
-                                text_color = 'w'
-                                text_x = coords[1] + 10*(box['box_pred_class_id'] -1) #avoid overlap of scores in plot.
-                                text_y = coords[2] + 5
-                            else:#background and small score don't show
-                                continue
-                        elif box['box_type'] == 'gt':
-                            plot_text = True
-                            score_text = int(box['box_label'])
-                            score_font_size = 7
-                            text_color = 'r'
-                            text_x = coords[1]
-                            text_y = coords[0] - 1
-                        else:
-                            plot_text = False
+                        score_font_size = 7
+                        text_color = 'w'
+                        text_x = coords[1] + 10*(box['box_pred_class_id'] -1) #avoid overlap of scores in plot.
+                        text_y = coords[2] + 5
+                    else:#background and small score don't show
+                        continue
+                elif box['box_type'] == 'gt':
+                    plot_text = True
+                    score_text = int(box['box_label'])
+                    score_font_size = 7
+                    text_color = 'r'
+                    text_x = coords[1]
+                    text_y = coords[0] - 1
+                else:
+                    plot_text = False
 
-                        color_var = 'extra_usage' if 'extra_usage' in list(box.keys()) else 'box_type'
-                        color = cf.box_color_palette[box[color_var]]
-                        ax.plot([coords[1], coords[3]], [coords[0], coords[0]], color=color, linewidth=1, alpha=1) # up
-                        ax.plot([coords[1], coords[3]], [coords[2], coords[2]], color=color, linewidth=1, alpha=1) # down
-                        ax.plot([coords[1], coords[1]], [coords[0], coords[2]], color=color, linewidth=1, alpha=1) # left
-                        ax.plot([coords[3], coords[3]], [coords[0], coords[2]], color=color, linewidth=1, alpha=1) # right
-                        if plot_text:
-                            ax.text(text_x, text_y, score_text, fontsize=score_font_size, color=text_color)
+                color_var = 'extra_usage' if 'extra_usage' in list(box.keys()) else 'box_type'
+                color = cf.box_color_palette[box[color_var]]
+                ax.plot([coords[1], coords[3]], [coords[0], coords[0]], color=color, linewidth=1, alpha=1) # up
+                ax.plot([coords[1], coords[3]], [coords[2], coords[2]], color=color, linewidth=1, alpha=1) # down
+                ax.plot([coords[1], coords[1]], [coords[0], coords[2]], color=color, linewidth=1, alpha=1) # left
+                ax.plot([coords[3], coords[3]], [coords[0], coords[2]], color=color, linewidth=1, alpha=1) # right
+                if plot_text:
+                    ax.text(text_x, text_y, score_text, fontsize=score_font_size, color=text_color)
     #try:
+    #    outfile = './temp.png'
     #    plt.savefig(outfile)
     #except:
     #    raise Warning('failed to save plot.')
