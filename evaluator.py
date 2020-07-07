@@ -86,6 +86,7 @@ class Evaluator():
             TP_roi,FP_roi,FN_roi,TN_pat = 0,0,0,0
             for cl in list(self.cf.class_dict.keys()):
                 for pix, pid in enumerate(pid_list):
+                    #print('evaluating patient:',pid)
                     len_df_list_before_patient = len(df_list_pids)
                     for bix, b_boxes_list in enumerate(batch_elements_list[pix]):#len == 1
 
@@ -101,35 +102,38 @@ class Evaluator():
                             gt = b_tar_boxes[0]
                         else:
                             gt = [0, 0, 0, 0, 0, 0]
+                        #print('b_tar_boxes',b_tar_boxes.shape)
+                        #print('b_cand_boxes',b_cand_boxes.shape)
+                        #print('gt',gt)
                         # check if predictions and ground truth boxes exist and match them according to match_iou.
                         if not 0 in b_cand_boxes.shape and not 0 in b_tar_boxes.shape:#30,6 1,6 30,1
                             # pred is FP or TP
                             overlaps = mutils.compute_overlaps(b_cand_boxes, b_tar_boxes)#overlap between gt and pred
                             match_cand_ixs = np.argwhere(np.max(overlaps, 1) > match_iou)[:, 0]# 0.1 TP
                             non_match_cand_ixs = np.argwhere(np.max(overlaps, 1) <= match_iou)[:, 0]#FP
-                            match_gt_ixs = np.argmax(overlaps[match_cand_ixs, :],
-                                                     1) if not 0 in match_cand_ixs.shape else np.array([])
-                            non_match_gt_ixs = np.array(
-                                [ii for ii in np.arange(b_tar_boxes.shape[0]) if ii not in match_gt_ixs])#FN
-                            unique, counts = np.unique(match_gt_ixs, return_counts=True)
+                            #match_gt_ixs = np.argmax(overlaps[match_cand_ixs, :],
+                            #                         1) if not 0 in match_cand_ixs.shape else np.array([])
+                            #non_match_gt_ixs = np.array(
+                            #    [ii for ii in np.arange(b_tar_boxes.shape[0]) if ii not in match_gt_ixs])#FN
+                            #unique, counts = np.unique(match_gt_ixs, return_counts=True)
 
                             # check for double assignments, i.e. two predictions having been assigned to the same gt.
                             # according to the COCO-metrics, only one prediction counts as true positive, the rest counts as
                             # false positive. This case is supposed to be avoided by the model itself by,
                             #  e.g. using a low enough NMS threshold.
-                            if np.any(counts > 1):
-                                double_match_gt_ixs = unique[np.argwhere(counts > 1)[:, 0]]
-                                keep_max = []
-                                double_match_list = []
-                                for dg in double_match_gt_ixs:
-                                    double_match_cand_ixs = match_cand_ixs[np.argwhere(match_gt_ixs == dg)]
-                                    keep_max.append(double_match_cand_ixs[np.argmax(b_cand_scores[double_match_cand_ixs])])
-                                    double_match_list += [ii for ii in double_match_cand_ixs]
+                            #if np.any(counts > 1):
+                            #    double_match_gt_ixs = unique[np.argwhere(counts > 1)[:, 0]]
+                            #    keep_max = []
+                            #    double_match_list = []
+                            #    for dg in double_match_gt_ixs:
+                            #        double_match_cand_ixs = match_cand_ixs[np.argwhere(match_gt_ixs == dg)]
+                            #        keep_max.append(double_match_cand_ixs[np.argmax(b_cand_scores[double_match_cand_ixs])])
+                            #        double_match_list += [ii for ii in double_match_cand_ixs]
 
-                                fp_ixs = np.array([ii for ii in match_cand_ixs if
-                                                     (ii in double_match_list and ii not in keep_max)])
+                            #    fp_ixs = np.array([ii for ii in match_cand_ixs if
+                            #                         (ii in double_match_list and ii not in keep_max)])
 
-                                match_cand_ixs = np.array([ii for ii in match_cand_ixs if ii not in fp_ixs])
+                            #    match_cand_ixs = np.array([ii for ii in match_cand_ixs if ii not in fp_ixs])
 
                             # matched:
                             if not 0 in match_cand_ixs.shape:
@@ -220,7 +224,10 @@ class Evaluator():
         [tp_patient_.append(i) for i in tp_patient if not i in tp_patient_] 
         tp_patient_num = len(tp_patient_)
         if flag == 'test':
-            csvpth = pth + '/{}_epoch_{}.csv'.format(flag,epoch)
+            if cf.test_last_epoch == False:
+                csvpth = pth + '/{}_epoch_{}.csv'.format(flag,epoch)
+            else:
+                csvpth = pth + '/{}_lastepoch_{}.csv'.format(flag,epoch)
             print('csvpth',csvpth)
             self.test_df.to_csv(csvpth)
         return (tp_patient_num,TP_roi,FP_roi,total_num)#,FN_roi,TN_pat)

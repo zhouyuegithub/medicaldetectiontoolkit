@@ -97,8 +97,9 @@ def get_test_generator(cf, logger):
     logger.info("data set loaded with: {} test patients".format(len(test_ix)))
     batch_gen = {}
     batch_gen['test'] = PatientBatchIterator(test_data, cf=cf)
-    batch_gen['n_test'] = len(test_ix) if cf.max_test_patients=="all" else \
-        min(cf.max_test_patients, len(test_ix))
+    #batch_gen['n_test'] =  len(test_ix) if cf.max_test_patients=="all" else \
+    #    min(cf.max_test_patients, len(test_ix))
+    batch_gen['n_test'] = 10
     return batch_gen
 
 
@@ -342,32 +343,6 @@ class PatientBatchIterator(SlimDataLoaderBase):
                                   'patient_roi_labels': batch_3D['roi_labels'],
                                   'original_img_shape': out_data.shape})
 
-        if self.cf.dim == 2:
-            out_data = np.transpose(data, axes=(3, 0, 1, 2))  # (z, c, x, y )
-            out_seg = np.transpose(seg, axes=(2, 0, 1))[:, np.newaxis]
-            out_targets = np.array(np.repeat(batch_class_targets, out_data.shape[0], axis=0))
-
-            # if set to not None, add neighbouring slices to each selected slice in channel dimension.
-            if self.cf.n_3D_context is not None:
-                slice_range = range(self.cf.n_3D_context, out_data.shape[0] + self.cf.n_3D_context)
-                out_data = np.pad(out_data, ((self.cf.n_3D_context, self.cf.n_3D_context), (0, 0), (0, 0), (0, 0)), 'constant', constant_values=0)
-                out_data = np.array(
-                    [np.concatenate([out_data[ii] for ii in range(
-                        slice_id - self.cf.n_3D_context, slice_id + self.cf.n_3D_context + 1)], axis=0) for slice_id in
-                     slice_range])
-
-            batch_2D = {'data': out_data, 'seg': out_seg, 'class_target': out_targets, 'pid': pid}
-            converter = ConvertSegToBoundingBoxCoordinates(dim=2, get_rois_from_seg_flag=False, class_specific_seg_flag=self.cf.class_specific_seg_flag)
-            batch_2D = converter(**batch_2D)
-
-            if self.cf.merge_2D_to_3D_preds:
-                batch_2D.update({'patient_bb_target': batch_3D['patient_bb_target'],
-                                      'patient_roi_labels': batch_3D['patient_roi_labels'],
-                                      'original_img_shape': out_data.shape})
-            else:
-                batch_2D.update({'patient_bb_target': batch_2D['bb_target'],
-                                 'patient_roi_labels': batch_2D['roi_labels'],
-                                 'original_img_shape': out_data.shape})
 
         out_batch = batch_3D if self.cf.dim == 3 else batch_2D
         patient_batch = out_batch
@@ -401,14 +376,6 @@ class PatientBatchIterator(SlimDataLoaderBase):
             batch_class_targets = np.repeat(batch_class_targets, len(patch_crop_coords_list), axis=0)
             #print('data',data.shape)
 
-            if self.cf.dim == 2:
-                if self.cf.n_3D_context is not None:
-                    data = np.transpose(data[:, 0], axes=(0, 3, 1, 2))
-                else:
-                    # all patches have z dimension 1 (slices). discard dimension
-                    data = data[..., 0]
-                seg = seg[..., 0]
-
             patch_batch = {'data': data, 'seg': seg, 'class_target': batch_class_targets, 'pid': pid}#classtarget is len == cropsize
             patch_batch['patch_crop_coords'] = np.array(patch_crop_coords_list)
             patch_batch['patient_bb_target'] = patient_batch['patient_bb_target']#gt box
@@ -425,10 +392,6 @@ class PatientBatchIterator(SlimDataLoaderBase):
         if out_batch['patient_roi_labels'][0][0] > 0:
             out_batch['patient_roi_labels'][0] = [1]
 
-        #for k in out_batch.keys():
-        #    print(k)
-        #    if k == 'patch_crop_coords':
-        #        print(out_batch[k])
         return out_batch
 
 

@@ -23,6 +23,7 @@ from multiprocessing import Pool
 import pickle
 import pandas as pd
 from plotting import plot_batch_prediction
+import torch.nn.functional as F
 
 
 class Predictor:
@@ -158,6 +159,7 @@ class Predictor:
             self.net.eval()
             self.rank_ix = str(rank_ix)  # get string of current rank for unique patch ids.
             with torch.no_grad():
+                print('batch_gen',batch_gen['n_test'])
                 for _ in range(batch_gen['n_test']):
 
                     batch = next(batch_gen['test'])
@@ -171,6 +173,7 @@ class Predictor:
                         dict_of_patient_results[batch['pid']] = {}
                         dict_of_patient_results[batch['pid']]['results_list'] = []
                         dict_of_patient_results[batch['pid']]['seg_preds'] = []
+                        dict_of_patient_results[batch['pid']]['seg_logits'] = []
                         dict_of_patient_results[batch['pid']]['patient_bb_target'] = batch['patient_bb_target']
                         dict_of_patient_results[batch['pid']]['patient_roi_labels'] = batch['patient_roi_labels']
                         print('testing pid',batch['pid'])
@@ -183,17 +186,22 @@ class Predictor:
                     #print('result keys', results_dict.keys())
                     #print('seg_preds',results_dict['seg_preds'].shape)
                     #print('seg_preds',results_dict['seg_preds'].max())
+                    #print('seg_logits',results_dict['seg_logits'].shape)
+                    #print('seg_logits',results_dict['seg_logits'].max())
                     dict_of_patient_results[batch['pid']]['results_list'].append(results_dict['boxes'])
                     dict_of_patient_results[batch['pid']]['seg_preds'].append(results_dict['seg_preds'])
+                    dict_of_patient_results[batch['pid']]['seg_logits'].append(results_dict['seg_logits'])
 
         self.logger.info('finished predicting test set. starting post-processing of predictions.')
         list_of_results_per_patient = []
-        list_of_results_per_patient_seg = []
+        list_of_results_per_patient_seg_mask = []
+        list_of_results_per_patient_seg_logits = []
 
         # loop over patients again to flatten results across epoch predictions.
         # if provided, add ground truth boxes for evaluation.
         for pid, p_dict in dict_of_patient_results.items():
             tmp_seg_result = dict_of_patient_results[pid]['seg_preds'][0]
+            tmp_seg_logits_result = dict_of_patient_results[pid]['seg_logits'][0]
             #print('tmp_seg_result',tmp_seg_result.shape)
             #print('tmp_seg_result',tmp_seg_result.max())
             #print('tmp_seg_result',tmp_seg_result.min())
@@ -216,34 +224,12 @@ class Predictor:
                                                      'box_type': 'gt'})
 
             list_of_results_per_patient.append([results_dict['boxes'], pid])
-            list_of_results_per_patient_seg.append([tmp_seg_result,pid]) 
+            list_of_results_per_patient_seg_mask.append([tmp_seg_result,pid]) 
+            list_of_results_per_patient_seg_logits.append([tmp_seg_logits_result,pid]) 
         # save out raw predictions.
-        #out_string = 'raw_pred_boxes_hold_out_list' if self.cf.hold_out_test_set else 'raw_pred_boxes_list'#false
-        #with open(os.path.join(self.cf.fold_dir, '{}.pickle'.format(out_string)), 'wb') as handle:
-        #    pickle.dump(list_of_results_per_patient, handle)
 
         if return_results:#true
-            return list_of_results_per_patient,testing_epoch
-            # consolidate predictions.
-            #self.logger.info('applying wcs to test set predictions with iou = {} and n_ens = {}.'.format(
-            #    self.cf.wcs_iou, self.n_ens))
-            #pool = Pool(processes=6)
-            #mp_inputs = [[ii[0], ii[1], self.cf.class_dict, self.cf.wcs_iou, self.n_ens] for ii in list_of_results_per_patient]
-            #list_of_results_per_patient = pool.map(apply_wbc_to_patient, mp_inputs, chunksize=1)
-            #pool.close()
-            #pool.join()
-
-            ## merge 2D boxes to 3D cubes. (if model predicts 2D but evaluation is run in 3D)
-            #if self.cf.merge_2D_to_3D_preds:
-            #    self.logger.info('applying 2Dto3D merging to test set predictions with iou = {}.'.format(self.cf.merge_3D_iou))
-            #    pool = Pool(processes=6)
-            #    mp_inputs = [[ii[0], ii[1], self.cf.class_dict, self.cf.merge_3D_iou] for ii in list_of_results_per_patient]
-            #    list_of_results_per_patient = pool.map(merge_2D_to_3D_preds_per_patient, mp_inputs, chunksize=1)
-            #    pool.close()
-            #    pool.join()
-
-            #return list_of_results_per_patient,list_of_results_per_patient_seg,testing_epoch
-
+            return [list_of_results_per_patient,list_of_results_per_patient_seg_mask,list_of_results_per_patient_seg_logits,testing_epoch]
 
     def load_saved_predictions(self, apply_wbc=False):
         """
@@ -323,73 +309,13 @@ class Predictor:
         results_list = [self.spatial_tiling_forward(batch, patch_crops)]
         org_img_shape = batch['original_img_shape']
 
-        #if self.mode == 'test' and self.cf.test_aug:
-
-        #    if self.patched_patient:
-        #        # apply mirror transformations to patch-crop coordinates, for correct tiling in spatial_tiling method.
-        #        mirrored_patch_crops = get_mirrored_patch_crops(patch_crops, batch['original_img_shape'])
-        #    else:
-        #        mirrored_patch_crops = [None] * 3
-
-        #    img = np.copy(batch['data'])
-
-        #    # first mirroring: y-axis.
-        #    batch['data'] = np.flip(img, axis=2).copy()
-        #    chunk_dict = self.spatial_tiling_forward(batch, mirrored_patch_crops[0], n_aug='1')
-        #    # re-transform coordinates.
-        #    for ix in range(len(chunk_dict['boxes'])):
-        #        for boxix in range(len(chunk_dict['boxes'][ix])):
-        #            coords = chunk_dict['boxes'][ix][boxix]['box_coords'].copy()
-        #            coords[0] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][2]
-        #            coords[2] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][0]
-        #            assert coords[2] >= coords[0], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-        #            assert coords[3] >= coords[1], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-        #            chunk_dict['boxes'][ix][boxix]['box_coords'] = coords
-        #    # re-transform segmentation predictions.
-        #    chunk_dict['seg_preds'] = np.flip(chunk_dict['seg_preds'], axis=2)
-        #    results_list.append(chunk_dict)
-
-        #    # second mirroring: x-axis.
-        #    batch['data'] = np.flip(img, axis=3).copy()
-        #    chunk_dict = self.spatial_tiling_forward(batch, mirrored_patch_crops[1], n_aug='2')
-        #    # re-transform coordinates.
-        #    for ix in range(len(chunk_dict['boxes'])):
-        #        for boxix in range(len(chunk_dict['boxes'][ix])):
-        #            coords = chunk_dict['boxes'][ix][boxix]['box_coords'].copy()
-        #            coords[1] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][3]
-        #            coords[3] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][1]
-        #            assert coords[2] >= coords[0], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-        #            assert coords[3] >= coords[1], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-        #            chunk_dict['boxes'][ix][boxix]['box_coords'] = coords
-        #    # re-transform segmentation predictions.
-        #    chunk_dict['seg_preds'] = np.flip(chunk_dict['seg_preds'], axis=3)
-        #    results_list.append(chunk_dict)
-
-        #    # third mirroring: y-axis and x-axis.
-        #    batch['data'] = np.flip(np.flip(img, axis=2), axis=3).copy()
-        #    chunk_dict = self.spatial_tiling_forward(batch, mirrored_patch_crops[2], n_aug='3')
-        #    # re-transform coordinates.
-        #    for ix in range(len(chunk_dict['boxes'])):
-        #        for boxix in range(len(chunk_dict['boxes'][ix])):
-        #            coords = chunk_dict['boxes'][ix][boxix]['box_coords'].copy()
-        #            coords[0] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][2]
-        #            coords[2] = org_img_shape[2] - chunk_dict['boxes'][ix][boxix]['box_coords'][0]
-        #            coords[1] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][3]
-        #            coords[3] = org_img_shape[3] - chunk_dict['boxes'][ix][boxix]['box_coords'][1]
-        #            assert coords[2] >= coords[0], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-        #            assert coords[3] >= coords[1], [coords, chunk_dict['boxes'][ix][boxix]['box_coords'].copy()]
-        #            chunk_dict['boxes'][ix][boxix]['box_coords'] = coords
-        #    # re-transform segmentation predictions.
-        #    chunk_dict['seg_preds'] = np.flip(np.flip(chunk_dict['seg_preds'], axis=2), axis=3).copy()
-        #    results_list.append(chunk_dict)
-
-        #    batch['data'] = img
-
         # aggregate all boxes/seg_preds per batch element from data_aug predictions.
         results_dict = {}
         results_dict['boxes'] = [[item for d in results_list for item in d['boxes'][batch_instance]]
                                  for batch_instance in range(org_img_shape[0])]
         results_dict['seg_preds'] = np.array([[item for d in results_list for item in d['seg_preds'][batch_instance]]
+                                              for batch_instance in range(org_img_shape[0])])
+        results_dict['seg_logits'] = np.array([[item for d in results_list for item in d['seg_logits'][batch_instance]]
                                               for batch_instance in range(org_img_shape[0])])
         if self.mode == 'val':
             results_dict['monitor_values'] = results_list[0]['monitor_values']
@@ -441,6 +367,16 @@ class Predictor:
             # take mean in overlapping areas.
             out_seg_preds[patch_overlap_map > 0] /= patch_overlap_map[patch_overlap_map > 0]
             results_dict['seg_preds'] = out_seg_preds
+
+            out_seg_logits = np.zeros(batch['original_img_shape'], dtype=np.float16)[:, 0][:, None]
+            patch_overlap_map_logits = np.zeros_like(out_seg_logits, dtype='uint8')
+            #unmold segmentation outputs. loop over patches.
+            for pix, pc in enumerate(patch_crops):#pc is location
+                if self.cf.dim == 3:
+                    out_seg_logits[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += patches_dict['seg_logits'][pix][None]
+                    patch_overlap_map_logits[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += 1
+            out_seg_logits[patch_overlap_map_logits > 0] /= patch_overlap_map_logits[patch_overlap_map_logits > 0]
+            results_dict['seg_logits'] = out_seg_logits#patches_dict['seg_logits'] 
 
             # unmold box outputs. loop over patches.
             for pix, pc in enumerate(patch_crops):#pc is location
@@ -528,13 +464,21 @@ class Predictor:
                 if self.mode == 'val':
                     chunk_dicts += [self.net.train_forward(b, is_validation=True)]
                 else:
-                    chunk_dicts += [self.net.test_forward(b, return_masks=self.cf.return_masks_in_test)]
+                    chunk_dicts += [self.net.test_forward(b, return_masks=True)]
 
 
             results_dict = {}
             # flatten out batch elements from chunks ([chunk, chunk] -> [b, b, b, b, ...])
             results_dict['boxes'] = [item for d in chunk_dicts for item in d['boxes']]
             results_dict['seg_preds'] = np.array([item for d in chunk_dicts for item in d['seg_preds']])
+            seg_logits = []
+            for d in chunk_dicts:
+                for item in d['seg_logits']:
+                    i = F.softmax(item,dim=0)[1:2,:,:,:]
+                    i[i>0.5] = 1
+                    i[i<1] = 0
+                    seg_logits.append(i.cpu().detach().numpy())
+            results_dict['seg_logits'] = np.array([item for item in seg_logits])
 
             if self.mode == 'val':
                 # estimate metrics by mean over batch_chunks. Most similar to training metrics.

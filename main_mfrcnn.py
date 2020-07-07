@@ -205,28 +205,22 @@ def test(logger):
     test_predictor = Predictor(cf, net, logger, mode='test')
     test_evaluator = Evaluator(cf, logger, mode='test')
     batch_gen = data_loader.get_test_generator(cf, logger)
-    test_results_list, testing_epoch= test_predictor.predict_test_set(batch_gen,cf, return_results=True)
-    #save_test_image(test_results_list,testing_epoch,cf,cf.test_dir)
+    test_results_list,test_results_list_mask,test_results_list_seg ,testing_epoch= test_predictor.predict_test_set(batch_gen,cf, return_results=True)
     count = test_evaluator.evaluate_predictions(test_results_list,testing_epoch,cf,pth = cf.test_dir,flag = 'test')
     print('tp_patient {}, tp_roi {}, fp_roi {}'.format(count[0],count[1],count[2]))
-    #test_evaluator.score_test_df()
-    #print('test_results_list',len(test_results_list))
-    #print('test_results_list',len(test_results_list[0][0][0]))
-    #print('test_results_list',(test_results_list[0][1]))
-    #print('test_results_list',len(test_results_list[1][0][0]))
-    #print('test_results_list',(test_results_list[1][1]))
+    save_test_image(test_results_list,test_results_list_mask,test_results_list_seg,testing_epoch,cf,cf.plot_dir)
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str,  default='train',
+    parser.add_argument('--mode', type=str,  default='test',
                         help='one out of: train / test / train_test / analysis / create_exp')
     parser.add_argument('-f','--folds', nargs='+', type=int, default=[1],
                         help='None runs over all folds in CV. otherwise specify list of folds.')
-    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor6/yuezhou/ABUSdata/det-seg/mrcnn/0704_vlevel4_mrcnn_val/',
+    parser.add_argument('--exp_dir', type=str, default='/shenlab/lab_stor6/yuezhou/ABUSdata/det-seg/mrcnn/0704_vlevel4_mrcnn-seg_val/',
                         help='path to experiment dir. will be created if non existent.')
-    parser.add_argument('--resume_to_checkpoint', type=str, default=None,
+    parser.add_argument('--resume_to_checkpoint', type=str, default='/shenlab/lab_stor6/yuezhou/ABUSdata/det-seg/mrcnn/0704_vlevel4_mrcnn-seg_val/fold_1/',
                         help='if resuming to checkpoint, the desired fold still needs to be parsed via --folds.')
     parser.add_argument('--exp_source', type=str, default='experiments/abus_exp/',
                         help='specifies, from which source experiment to load configs and data_loader.')

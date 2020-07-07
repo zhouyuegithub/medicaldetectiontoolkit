@@ -181,6 +181,7 @@ def unmold_mask_3D(mask, bbox, image_shape):
     # Put the mask in the right location.
     full_mask = np.zeros(image_shape[:3])
     full_mask[y1:y2, x1:x2, z1:z2] = mask
+    #print('full_mask',full_mask.max())
     return full_mask
 
 

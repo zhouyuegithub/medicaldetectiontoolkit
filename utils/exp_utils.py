@@ -92,8 +92,8 @@ def prep_exp(exp_path, is_training=True):
         cf.model_path = tmp_model_path
         cf.backbone_path = tmp_backbone_path
         cf.exp_dir = exp_path
-        cf.test_dir = os.path.join(cf.exp_dir, 'test')
-        cf.plot_dir = os.path.join(cf.exp_dir, 'plots')
+        cf.test_dir = os.path.join(cf.exp_dir, 'test/')
+        cf.plot_dir = os.path.join(cf.exp_dir, 'plots/')
         if not os.path.exists(cf.test_dir):
             os.makedirs(cf.test_dir)
         if not os.path.exists(cf.plot_dir):

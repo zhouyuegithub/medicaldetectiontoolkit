@@ -24,7 +24,7 @@ class configs(DefaultConfigs):
 
     def __init__(self):
 
-        self.gpu = '4'
+        self.gpu = '0'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
 
         #########################

@@ -848,6 +848,7 @@ def get_results(cf, img_shape, detections, detection_masks, seg_logits, box_resu
             final_masks = np.zeros(img_shape[2:])
 
         seg_preds.append(final_masks)
+        print('seg_preds',seg_preds.max())
     # create and fill results dictionary.
     results_dict = {'boxes': box_results_list,
                     'seg_preds': np.round(np.array(seg_preds))[:, np.newaxis].astype('uint8'),
