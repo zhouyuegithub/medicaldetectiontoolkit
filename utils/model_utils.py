@@ -176,12 +176,12 @@ def unmold_mask_3D(mask, bbox, image_shape):
     y1, x1, y2, x2, z1, z2 = bbox
     out_zoom = [y2 - y1, x2 - x1, z2 - z1]
     zoom_factor = [i/j for i,j in zip(out_zoom, mask.shape)]
+    zoom_factor = zoom_factor + [1]
     mask = scipy.ndimage.zoom(mask, zoom_factor, order=1).astype(np.float32)
 
     # Put the mask in the right location.
-    full_mask = np.zeros(image_shape[:3])
-    full_mask[y1:y2, x1:x2, z1:z2] = mask
-    #print('full_mask',full_mask.max())
+    full_mask = np.zeros((image_shape[0],image_shape[1],image_shape[2],2))
+    full_mask[y1:y2, x1:x2, z1:z2,:] = mask
     return full_mask
 
 

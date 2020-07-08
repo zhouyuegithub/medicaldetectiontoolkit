@@ -229,7 +229,9 @@ def prepare_monitoring(cf):
     metrics['train']['train_percision'] = [None]
     metrics['val']['val_recall'] = [None]
     metrics['val']['val_percision'] = [None]
-    metrics['val']['val_seg_dice'] = [None]
+    metrics['val']['val_dice_seg'] = [None]
+    metrics['val']['val_dice_mask'] = [None]
+    metrics['val']['val_dice_fusion'] = [None]
     metrics['train']['monitor_values'] = [[] for _ in range(cf.num_epochs + 1)]
     metrics['val']['monitor_values'] = [[] for _ in range(cf.num_epochs + 1)]
 

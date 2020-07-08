@@ -99,7 +99,7 @@ def get_test_generator(cf, logger):
     batch_gen['test'] = PatientBatchIterator(test_data, cf=cf)
     #batch_gen['n_test'] =  len(test_ix) if cf.max_test_patients=="all" else \
     #    min(cf.max_test_patients, len(test_ix))
-    batch_gen['n_test'] = 10
+    batch_gen['n_test'] = 2 
     return batch_gen
 
 

@@ -24,13 +24,12 @@ class configs(DefaultConfigs):
 
     def __init__(self):
 
-        self.gpu = '0'
+        self.gpu = '6'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
 
         #########################
         #         I/O           #
         #########################
-
 
         # one out of [2, 3]. dimension the model operates in.
         self.dim = 3
@@ -41,16 +40,12 @@ class configs(DefaultConfigs):
 
         DefaultConfigs.__init__(self, self.model, self.dim)
 
-        # int [0 < dataset_size]. select n patients from dataset for prototyping. If None, all data is used.
-        #self.select_prototype_subset = None 
-
         # path to preprocessed data.
         self.pp_name = 'abus_npy'
         self.input_df_name = 'info_df.pickle'
         self.input_id_name = 'fold_ids.pickle'
         self.pp_data_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/{}/'.format(self.pp_name)
         self.pp_test_data_path = self.pp_data_path #change if test_data in separate folder.
-        # settings for deployment in cloud.
 
         #########################
         #      Data Loader      #
@@ -104,7 +99,6 @@ class configs(DefaultConfigs):
             self.batch_size = 20 if self.dim == 2 else 2 
             self.n_workers = 16
 
-
         self.do_validation = True
         # decide whether to validate on entire patient volumes (like testing) or sampled patches (like training)
         # the former is morge accurate, while the latter is faster (depending on volume size)
@@ -120,19 +114,20 @@ class configs(DefaultConfigs):
         #########################
         # loss  #
         #########################
-        # in ['seg-only','mrcnn-only','frcnn-only','mrcnn-seg','frcnn-seg']
-        self.loss_flag = 'mrcnn-only'
+        # in ['seg-only','mrcnn-only','frcnn-only','mrcnn-seg','frcnn-seg','mrcnn-seg-fusion']
+        self.loss_flag = 'mrcnn-seg-fusion'
 
         #########################
         #   Testing / Plotting  #
         #########################
-
+        # show detection box score
+        self.show_det_source_th = 0.1
         # patch stride during testing
         self.testing_patch_stride = [64,128,128]
         # set the top-n-epochs to be saved for temporal averaging in testing.
-        self.save_n_models = 2
+        self.save_n_models = 5 
         self.test_n_epochs = 5
-        
+        # test the best epoch or the last epoch 
         self.test_last_epoch = True 
         # show image
         if self.debug == 1:
@@ -143,7 +138,7 @@ class configs(DefaultConfigs):
             self.show_val_images = 5
 
         #select detected box score
-        self.source_th = 0.1
+        #self.source_th = 0.1
 
         # set a minimum epoch number for saving in case of instabilities in the first phase of training.
         self.min_save_thresh = 0 if self.dim == 2 else 0
@@ -153,7 +148,7 @@ class configs(DefaultConfigs):
         self.patient_class_of_interest = 1  # patient metrics are only plotted for one class.
         self.ap_match_ious = [0.1]  # list of ious to be evaluated for ap-scoring.
 
-        self.model_selection_criteria = ['val_recall']#['malignant_ap', 'benign_ap'] # criteria to average over for saving epochs.
+        self.model_selection_criteria = ['val_dice_seg','val_dice_mask','val_dice_fusion']#criteria to average over for saving epochs.
         self.min_det_thresh = 0.1  # minimum confidence value to select predictions for evaluation.
 
         #########################
@@ -190,7 +185,6 @@ class configs(DefaultConfigs):
 
         {'detection_unet': self.add_det_unet_configs,
          'mrcnn': self.add_mrcnn_configs,
-         'seg_mrcnn': self.add_mrcnn_configs,
          'ufrcnn': self.add_mrcnn_configs,
          'retina_net': self.add_mrcnn_configs,
          'retina_unet': self.add_mrcnn_configs,
@@ -223,7 +217,6 @@ class configs(DefaultConfigs):
         self.head_classes = self.num_seg_classes
 
     def add_mrcnn_configs(self):
-        #print('add_mrcnn_configs')
         # learning rate is a list with one entry per epoch.
         self.decrease_lr = 150
         self.learning_rate = [1e-4] * self.decrease_lr + [1e-5] * (self.num_epochs - self.decrease_lr)
@@ -232,7 +225,8 @@ class configs(DefaultConfigs):
         # since evaluation is detection-driven (box-matching) and not instance segmentation-driven (iou-matching),
         # mask-outputs are optional.
         self.return_masks_in_val = True
-        self.return_masks_in_test = False
+        self.return_masks_in_train = True
+        self.return_masks_in_test = True 
 
         # set number of proposal boxes to plot after each epoch.
         self.n_plot_rpn_props = 5 if self.dim == 2 else 30
@@ -254,7 +248,6 @@ class configs(DefaultConfigs):
         # per pyramid level. (outer list are pyramid levels (corresponding to BACKBONE_STRIDES), inner list are scales per level.)
 
         # choose which pyramid levels to extract features from: P2: 0, P3: 1, P4: 2, P5: 3.
-        #self.pyramid_levels = [1,2]
         self.pyramid_levels = [4]
 
         # number of feature maps in rpn. typically lowered in 3D to save gpu-memory.
@@ -277,9 +270,9 @@ class configs(DefaultConfigs):
         # poolsize to draw top-k candidates from will be shem_poolsize * n_negative_samples.
         self.shem_poolsize = 10
 
-        self.pool_size = (7, 7) if self.dim == 2 else (7, 7, 3)
-        self.mask_pool_size = (14, 14) if self.dim == 2 else (14, 14, 5)
-        self.mask_shape = (28, 28) if self.dim == 2 else (28, 28, 10)
+        self.pool_size = (3,7,7)#(7, 7) if self.dim == 2 else (7, 7, 3)
+        self.mask_pool_size = (5,14,14)#(14, 14) if self.dim == 2 else (14, 14, 5)
+        self.mask_shape = (10,28,28)#(28, 28) if self.dim == 2 else (28, 28, 10)
 
         self.rpn_bbox_std_dev = np.array([0.1, 0.1, 0.1, 0.2, 0.2, 0.2])
         self.bbox_std_dev = np.array([0.1, 0.1, 0.1, 0.2, 0.2, 0.2])

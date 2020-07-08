@@ -152,6 +152,20 @@ class Classifier(nn.Module):
         #print('mrcnn_bbox',mrcnn_bbox.shape)
         return [mrcnn_class_logits, mrcnn_bbox]
 
+class Fusion(nn.Module):
+    """
+    fusion weighted segmap and maskmap with two conv layers
+    """
+    def __init__(self, cf, conv):
+        super(Fusion,self).__init__()
+        self.cf = cf
+        self.conv1 = conv(2,2,ks=3,stride=1,pad=1,norm=cf.norm,relu=cf.relu)
+        self.convout = conv(2, 2, ks=1, stride=1, relu=None)
+        self.sigmoid = nn.Sigmoid() 
+
+    def forward(self,x):
+        x = self.sigmoid(self.convout(self.conv1(x)))
+        return x
 
 
 class Mask(nn.Module):
@@ -206,6 +220,7 @@ class Mask(nn.Module):
         x = self.conv5(x)
         #print('conv5 x',x.shape)
         x = self.sigmoid(x)
+        #print('in mask',x.shape)
         return x
 
 ############################################################
@@ -804,12 +819,12 @@ def get_results(cf, img_shape, detections, detection_masks, seg_logits, box_resu
 
     seg_preds = []
     # loop over batch and unmold detections.
-    for ix in range(img_shape[0]): 
-        if 0 not in detections[ix].shape:#30,9
+    for ix in range(img_shape[0]):# 0 to batchsize 
+        if 0 not in detections[ix].shape:#has detected boxes
             boxes = detections[ix][:, :2 * cf.dim].astype(np.int32)#box of this batch
             class_ids = detections[ix][:, 2 * cf.dim + 1].astype(np.int32)#gt class
             scores = detections[ix][:, 2 * cf.dim + 2]#scores
-            masks = mrcnn_mask[ix][np.arange(boxes.shape[0]), ..., class_ids]
+            masks = mrcnn_mask[ix]#[np.arange(boxes.shape[0]), ..., class_ids]#extract forground
 
             # Filter out detections with zero area. Often only happens in early
             # stages of training when the network weights are still a bit random.
@@ -830,6 +845,8 @@ def get_results(cf, img_shape, detections, detection_masks, seg_logits, box_resu
             permuted_image_shape = list(img_shape[2:]) + [img_shape[1]]
             if return_masks:#Ture for validation
                 for i in range(masks.shape[0]):
+                    #print('mask',masks[i].max())
+                    #print('mask',masks[i].min())
                     # Convert neural network mask to full size mask.28,28,14 to 64,128,128
                     full_masks.append(mutils.unmold_mask_2D(masks[i], boxes[i], permuted_image_shape)
                     if cf.dim == 2 else mutils.unmold_mask_3D(masks[i], boxes[i], permuted_image_shape))
@@ -837,7 +854,10 @@ def get_results(cf, img_shape, detections, detection_masks, seg_logits, box_resu
             # right now only binary masks for plotting/monitoring. for instance segmentation return all proposal maks.
             final_masks = np.max(np.array(full_masks), 0) if len(full_masks) > 0 else np.zeros(
                 (*permuted_image_shape[:-1],))
-
+            #final_masks = np.average(np.array(full_masks), 0) if len(full_masks) > 0 else np.zeros(
+            #    (*permuted_image_shape[:-1],))
+            #print('final_masks',final_masks.max())
+            #print('final_masks',final_masks.min())
             # add final perdictions to results.
             if 0 not in boxes.shape:
                 for ix2, score in enumerate(scores):#boxes has been selected based on score in nms
@@ -845,13 +865,14 @@ def get_results(cf, img_shape, detections, detection_masks, seg_logits, box_resu
                                                  'box_type': 'det', 'box_pred_class_id': class_ids[ix2]})#come from detections
         else:
             # pad with zero dummy masks.
-            final_masks = np.zeros(img_shape[2:])
+            final_masks = np.zeros((64,128,128,2))
+            #print('final_masks',final_masks.shape)
 
         seg_preds.append(final_masks)
-        print('seg_preds',seg_preds.max())
     # create and fill results dictionary.
+    seg_preds= np.transpose(np.array(seg_preds),(0,4,1,2,3))#.astype('uint8')
     results_dict = {'boxes': box_results_list,
-                    'seg_preds': np.round(np.array(seg_preds))[:, np.newaxis].astype('uint8'),
+                    'seg_preds': seg_preds,
                     'seg_logits':seg_logits}
 
     return results_dict
@@ -907,6 +928,7 @@ class net(nn.Module):
         self.rpn = RPN(self.cf, conv)
         self.classifier = Classifier(self.cf, conv)
         self.mask = Mask(self.cf, conv)#several conv layers
+        self.fusion = Fusion(self.cf,conv)
 
 
     def train_forward(self, batch, is_validation=False):
@@ -925,17 +947,9 @@ class net(nn.Module):
         gt_boxes = batch['bb_target']
         #seg_label = batch['roi_masks'].squeeze()#seg label of patch 64,128,128
         seg_label = np.squeeze(batch['roi_masks'],axis=1)
-        #print('seg_label',seg_label.shape)
 
         seg_label_onehot = torch.FloatTensor(mutils.get_one_hot_encoding(seg_label,self.cf.num_seg_classes+1)).cuda()
-        #print('seg_label_onehot',seg_label_onehot.shape)
 
-        #for k in batch.keys():
-        #    print('k',k)
-        #    if k == 'roi_masks':
-        #        print('roi_masks',batch[k].shape)
-        #    if k == 'seg':
-        #        print('seg',batch[k].shape)
         axes = (0, 2, 3, 1) if self.cf.dim == 2 else (0, 2, 3, 4, 1)
         gt_masks = [np.transpose(batch['roi_masks'][ii], axes=axes) for ii in range(len(batch['roi_masks']))]
 
@@ -952,6 +966,7 @@ class net(nn.Module):
         # detection and detection masks just used for getresult
         mrcnn_class_logits, mrcnn_pred_deltas, mrcnn_pred_mask, target_class_ids, mrcnn_target_deltas, target_mask,  \
         sample_proposals = self.loss_samples_forward(gt_class_ids, gt_boxes, gt_masks)
+
         # loop over batch for loss
         for b in range(img.shape[0]):
             if len(gt_boxes[b]) > 0:#if tumor is this roi
@@ -988,13 +1003,34 @@ class net(nn.Module):
             mrcnn_mask_loss = torch.FloatTensor([0]).cuda()
 
         # segmentation loss 
-        vnet_seg_loss = compute_vnet_seg_loss(F.softmax(seg_logits,dim=1),seg_label_onehot)
+        #vnet_seg_loss = compute_vnet_seg_loss(F.softmax(seg_logits,dim=1),seg_label_onehot)
+        vnet_seg_loss = compute_vnet_seg_loss(seg_logits,seg_label_onehot)
+
+        # monitor RPN performance: detection count = the number of correctly matched proposals per fg-class.
+        dcount = [list(target_class_ids.cpu().data.numpy()).count(c) for c in np.arange(self.cf.head_classes)[1:]]
+
+        # run unmolding of predictions for monitoring and merge all results to one dictionary.
+        return_masks = self.cf.return_masks_in_val if is_validation else self.cf.return_masks_in_train#False for training True for validation
+        results_dict = get_results(self.cf, img.shape, detections, detection_masks,seg_logits,
+                                   box_results_list, return_masks=return_masks)#return box and segmap
+
+        # segmentation result fusion
+        #if 'mrcnn-seg-fusion' in self.cf.loss_flag:
+        mask_map = torch.tensor(results_dict['seg_preds']).float().cuda()
+        seg_map = seg_logits
+        weighted_map = torch.mul(self.weight_map[:,0:2,:,:,:],seg_map)+torch.mul(self.weight_map[:,2:4,:,:,:],mask_map)
+        fused_seg_map = self.fusion(weighted_map)
+        results_dict['fusion_map'] = fused_seg_map
+        # compute fusion loss
+        fusion_dice_loss = compute_vnet_seg_loss(fused_seg_map,seg_label_onehot)
 
         # total loss
         frcnn_loss = mrcnn_class_loss+mrcnn_bbox_loss+batch_rpn_class_loss+batch_rpn_bbox_loss
         mrcnn_loss = frcnn_loss+mrcnn_mask_loss
         seg_loss = vnet_seg_loss
-        if 'mrcnn-seg' in self.cf.loss_flag:
+        if 'mrcnn-seg-fusion' in self.cf.loss_flag:
+            loss = mrcnn_loss+seg_loss+fusion_dice_loss
+        if 'mrcnn-seg' in self.cf.loss_flag and 'mrcnn-seg-fusion' not in self.cf.loss_flag:
             loss = mrcnn_loss+seg_loss
         if 'seg-only' in self.cf.loss_flag:
             loss = seg_loss 
@@ -1004,21 +1040,16 @@ class net(nn.Module):
             loss = mrcnn_loss
         if 'frcnn-seg' in self.cf.loss_flag:
             loss = frcnn_loss+seg_loss
-        # monitor RPN performance: detection count = the number of correctly matched proposals per fg-class.
-        dcount = [list(target_class_ids.cpu().data.numpy()).count(c) for c in np.arange(self.cf.head_classes)[1:]]
-        # run unmolding of predictions for monitoring and merge all results to one dictionary.
-        return_masks = self.cf.return_masks_in_val if is_validation else False#False for training True for validation
-        results_dict = get_results(self.cf, img.shape, detections, detection_masks,seg_logits,
-                                   box_results_list, return_masks=return_masks)#return box and segmap
+
         results_dict['torch_loss'] = loss
         results_dict['monitor_values'] = {'loss': loss.item(), 'mrcnn_class_loss': mrcnn_class_loss.item()}
-        results_dict['monitor_losses'] = {'mrcnn_class_loss':mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(), 'mrcnn_mask_loss':mrcnn_mask_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item(),'seg_loss_dice':vnet_seg_loss.item()}
+        results_dict['monitor_losses'] = {'mrcnn_class_loss':mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(), 'mrcnn_mask_loss':mrcnn_mask_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item(),'seg_loss_dice':vnet_seg_loss.item(),'fusion_loss_dice':fusion_dice_loss.item()}
 
         results_dict['logger_string'] =  \
             "loss: {0:.2f}, rpn_class: {1:.2f}, rpn_bbox: {2:.2f}, mrcnn_class: {3:.2f}, mrcnn_bbox: {4:.2f}, " \
-            "mrcnn_mask: {5:.2f},seg_dice_loss:{6:.2f}, dcount {7}".format(loss.item(), batch_rpn_class_loss.item(),
+            "mrcnn_mask: {5:.2f},seg_dice_loss:{6:.2f}, fusion_loss:{7:.2f},dcount {8}".format(loss.item(), batch_rpn_class_loss.item(),
                                                      batch_rpn_bbox_loss.item(), mrcnn_class_loss.item(),
-                                                     mrcnn_bbox_loss.item(), mrcnn_mask_loss.item(), vnet_seg_loss.item(),dcount)
+                                                     mrcnn_bbox_loss.item(), mrcnn_mask_loss.item(), vnet_seg_loss.item(),fusion_dice_loss.item(),dcount)
 
         return results_dict
 
@@ -1036,8 +1067,14 @@ class net(nn.Module):
         """
         img = batch['data']
         img = torch.from_numpy(img).float().cuda()
-        _, _, _, detections, detection_masks = self.forward(img)
-        results_dict = get_results(self.cf, img.shape, detections, detection_masks, return_masks=return_masks)
+        _, _, _, detections, detection_masks, seg_logits = self.forward(img)
+        results_dict = get_results(self.cf, img.shape, detections, detection_masks, seg_logits, return_masks=return_masks)
+        mask_map = torch.tensor(results_dict['seg_preds']).float().cuda()
+        seg_map = seg_logits
+        weighted_map = torch.mul(self.weight_map[:,0:2,:,:,:],seg_map)+torch.mul(self.weight_map[:,2:4,:,:,:],mask_map)
+        fused_seg_map = self.fusion(weighted_map)
+        results_dict['fusion_map'] = fused_seg_map
+
         return results_dict
 
 
@@ -1052,13 +1089,12 @@ class net(nn.Module):
         """
         # extract features.
         #fpn_outs = self.fpn(img)
-        fpn_outs = self.featurenet(img)
+        fpn_outs,weight_map = self.featurenet(img)
         seg_logits = fpn_outs[0]
-        #print('seg_logits',seg_logits.shape)
+        self.weight_map = weight_map
+
         rpn_feature_maps = [fpn_outs[i+1] for i in self.cf.pyramid_levels]
         self.mrcnn_feature_maps = rpn_feature_maps
-        #for ff in self.mrcnn_feature_maps:
-        #    print('ff',ff.shape)
 
         # loop through pyramid layers and apply RPN.
         layer_outputs = []  # list of lists
@@ -1129,16 +1165,8 @@ class net(nn.Module):
         sample_ix, sample_target_class_ids, sample_target_deltas, sample_target_mask = \
             detection_target_layer(self.rpn_rois_batch_info, self.batch_mrcnn_class_scores,#(600,7)(600,,3)
                                    batch_gt_class_ids, batch_gt_boxes, batch_gt_masks, self.cf)#normlized bbox
-        #return sample_indices, target_class_ids, target_deltas, target_masks
-        #print('sample_ix',sample_ix)
-        #print('sample_target_class_ids',sample_target_class_ids)
-        #print('sample_target_deltas',sample_target_deltas.shape)
-        #print('sample_target_mask',sample_target_mask.shape)
 
         # re-use feature maps and RPN output from first forward pass.
-       # print('rpn_rois_batch_info',len(self.rpn_rois_batch_info))
-       # ix = torch.from_numpy(np.arange(len(self.rpn_rois_batch_info)/75).astype(np.float)).cuda()
-       # print('ix',ix)
         sample_proposals = self.rpn_rois_batch_info[sample_ix]#8,7
         if 0 not in sample_proposals.size():
             sample_logits, sample_boxes = self.classifier(self.mrcnn_feature_maps, sample_proposals)

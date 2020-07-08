@@ -163,8 +163,6 @@ class Predictor:
                 for _ in range(batch_gen['n_test']):
 
                     batch = next(batch_gen['test'])
-                    #for k in batch.keys():
-                    #    print('k',k)
                     for i in batch['patient_roi_labels']:
                         if i[0] > 0:
                             batch['patient_roi_labels'][0] = [1]
@@ -174,37 +172,30 @@ class Predictor:
                         dict_of_patient_results[batch['pid']]['results_list'] = []
                         dict_of_patient_results[batch['pid']]['seg_preds'] = []
                         dict_of_patient_results[batch['pid']]['seg_logits'] = []
+                        dict_of_patient_results[batch['pid']]['fusion_map'] = []
                         dict_of_patient_results[batch['pid']]['patient_bb_target'] = batch['patient_bb_target']
                         dict_of_patient_results[batch['pid']]['patient_roi_labels'] = batch['patient_roi_labels']
                         print('testing pid',batch['pid'])
-                        #print('gt box', batch['patient_bb_target'])
-                        #print('gt cls',batch['patient_roi_labels'])
-                        #print('data',batch['data'].shape)# 18,1,64,128,128
 
                     # call prediction pipeline and store results in dict.
                     results_dict = self.predict_patient(batch)#pred box and seg of this batch
-                    #print('result keys', results_dict.keys())
-                    #print('seg_preds',results_dict['seg_preds'].shape)
-                    #print('seg_preds',results_dict['seg_preds'].max())
-                    #print('seg_logits',results_dict['seg_logits'].shape)
-                    #print('seg_logits',results_dict['seg_logits'].max())
                     dict_of_patient_results[batch['pid']]['results_list'].append(results_dict['boxes'])
                     dict_of_patient_results[batch['pid']]['seg_preds'].append(results_dict['seg_preds'])
                     dict_of_patient_results[batch['pid']]['seg_logits'].append(results_dict['seg_logits'])
+                    dict_of_patient_results[batch['pid']]['fusion_map'].append(results_dict['fusion_map'])
 
         self.logger.info('finished predicting test set. starting post-processing of predictions.')
         list_of_results_per_patient = []
         list_of_results_per_patient_seg_mask = []
         list_of_results_per_patient_seg_logits = []
+        list_of_results_per_patient_seg_fusion = []
 
         # loop over patients again to flatten results across epoch predictions.
         # if provided, add ground truth boxes for evaluation.
         for pid, p_dict in dict_of_patient_results.items():
             tmp_seg_result = dict_of_patient_results[pid]['seg_preds'][0]
             tmp_seg_logits_result = dict_of_patient_results[pid]['seg_logits'][0]
-            #print('tmp_seg_result',tmp_seg_result.shape)
-            #print('tmp_seg_result',tmp_seg_result.max())
-            #print('tmp_seg_result',tmp_seg_result.min())
+            tmp_seg_fusion_result = dict_of_patient_results[pid]['fusion_map'][0]
             tmp_ens_list = p_dict['results_list']#len == 1
             results_dict = {}
             # collect all boxes/seg_preds of same batch_instance over temporal instances.
@@ -226,10 +217,11 @@ class Predictor:
             list_of_results_per_patient.append([results_dict['boxes'], pid])
             list_of_results_per_patient_seg_mask.append([tmp_seg_result,pid]) 
             list_of_results_per_patient_seg_logits.append([tmp_seg_logits_result,pid]) 
+            list_of_results_per_patient_seg_fusion.append([tmp_seg_fusion_result,pid])
         # save out raw predictions.
 
         if return_results:#true
-            return [list_of_results_per_patient,list_of_results_per_patient_seg_mask,list_of_results_per_patient_seg_logits,testing_epoch]
+            return [list_of_results_per_patient,list_of_results_per_patient_seg_mask,list_of_results_per_patient_seg_logits,list_of_results_per_patient_seg_fusion,testing_epoch]
 
     def load_saved_predictions(self, apply_wbc=False):
         """
@@ -317,13 +309,11 @@ class Predictor:
                                               for batch_instance in range(org_img_shape[0])])
         results_dict['seg_logits'] = np.array([[item for d in results_list for item in d['seg_logits'][batch_instance]]
                                               for batch_instance in range(org_img_shape[0])])
+        results_dict['fusion_map'] = np.array([[item for d in results_list for item in d['fusion_map'][batch_instance]]
+                                              for batch_instance in range(org_img_shape[0])])
         if self.mode == 'val':
             results_dict['monitor_values'] = results_list[0]['monitor_values']
 
-        #print('in data_aug_forward',len(results_dict['boxes']))
-        #print('in data_aug_forward',len(results_dict['boxes'][0]))
-        #for k in results_dict['boxes'][0][0].keys():
-        #    print('k',k)
         return results_dict
 
 
@@ -351,13 +341,9 @@ class Predictor:
             #print('shape',batch['original_img_shape'])#1,1,76,290,318
             # instanciate segemntation output array. Will contain averages over patch predictions.
             out_seg_preds = np.zeros(batch['original_img_shape'], dtype=np.float16)[:, 0][:, None]
-            # counts patch instances per pixel-position.
             patch_overlap_map = np.zeros_like(out_seg_preds, dtype='uint8')
-
-            #unmold segmentation outputs. loop over patches.
             for pix, pc in enumerate(patch_crops):#pc is location
                 if self.cf.dim == 3:
-                    #print('pc',pc)
                     out_seg_preds[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += patches_dict['seg_preds'][pix][None]
                     patch_overlap_map[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += 1
                 else:
@@ -370,7 +356,6 @@ class Predictor:
 
             out_seg_logits = np.zeros(batch['original_img_shape'], dtype=np.float16)[:, 0][:, None]
             patch_overlap_map_logits = np.zeros_like(out_seg_logits, dtype='uint8')
-            #unmold segmentation outputs. loop over patches.
             for pix, pc in enumerate(patch_crops):#pc is location
                 if self.cf.dim == 3:
                     out_seg_logits[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += patches_dict['seg_logits'][pix][None]
@@ -378,14 +363,20 @@ class Predictor:
             out_seg_logits[patch_overlap_map_logits > 0] /= patch_overlap_map_logits[patch_overlap_map_logits > 0]
             results_dict['seg_logits'] = out_seg_logits#patches_dict['seg_logits'] 
 
+            out_seg_fusion = np.zeros(batch['original_img_shape'], dtype=np.float16)[:, 0][:, None]
+            patch_overlap_map_fusion = np.zeros_like(out_seg_fusion, dtype='uint8')
+            for pix, pc in enumerate(patch_crops):#pc is location
+                if self.cf.dim == 3:
+                    out_seg_fusion[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += patches_dict['fusion_map'][pix][None]
+                    patch_overlap_map_fusion[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += 1
+            out_seg_fusion[patch_overlap_map_fusion > 0] /= patch_overlap_map_fusion[patch_overlap_map_fusion > 0]
+            results_dict['fusion_map'] = out_seg_fusion#patches_dict['seg_logits'] 
             # unmold box outputs. loop over patches.
             for pix, pc in enumerate(patch_crops):#pc is location
                 patch_boxes = patches_dict['boxes'][pix]
                 for box in patch_boxes:
-
                     # add unique patch id for consolidation of predictions.
                     box['patch_id'] = self.rank_ix + '_' + n_aug + '_' + str(pix)
-
                     # boxes from the edges of a patch have a lower prediction quality, than the ones at patch-centers.
                     # hence they will be downweighted for consolidation, using the 'box_patch_center_factor', which is
                     # obtained by a normal distribution over positions in the patch and average over spatial dimensions.
@@ -408,10 +399,8 @@ class Predictor:
                         int_c = [int(np.floor(ii)) if ix % 2 == 0 else int(np.ceil(ii)) for ix, ii in enumerate(c)]
                         box['box_n_overlaps'] = np.mean(patch_overlap_map[pc[4], :, int_c[1]:int_c[3], int_c[0]:int_c[2]])
                         results_dict['boxes'][pc[4]].append(box)
-
             if self.mode == 'val':
                 results_dict['monitor_values'] = patches_dict['monitor_values']
-
         # if predictions are not patch-based:
         # add patch-origin info to boxes (entire image is the same patch with overlap=1) and return results.
         else:
@@ -421,10 +410,6 @@ class Predictor:
                     box['box_patch_center_factor'] = 1
                     box['box_n_overlaps'] = 1
                     box['patch_id'] = self.rank_ix + '_' + n_aug
-        #print('results_dict in spatial_tiling_forward',len(results_dict['boxes']))
-        #print('results_dict in spatial_tiling_forward',len(results_dict['boxes'][0]))
-        #for k in results_dict['boxes'][0][0].keys():
-        #    print('k',k)
         return results_dict
 
 
@@ -470,15 +455,29 @@ class Predictor:
             results_dict = {}
             # flatten out batch elements from chunks ([chunk, chunk] -> [b, b, b, b, ...])
             results_dict['boxes'] = [item for d in chunk_dicts for item in d['boxes']]
-            results_dict['seg_preds'] = np.array([item for d in chunk_dicts for item in d['seg_preds']])
+            #results_dict['seg_preds'] = np.array([item for d in chunk_dicts for item in d['seg_preds']])
+            seg_preds = []
+            for d in chunk_dicts:
+                for item in d['seg_preds']:
+                    seg_preds.append(item[1:2,:,:,:])
+            results_dict['seg_preds'] = np.array([item for item in seg_preds])
+
             seg_logits = []
             for d in chunk_dicts:
                 for item in d['seg_logits']:
-                    i = F.softmax(item,dim=0)[1:2,:,:,:]
-                    i[i>0.5] = 1
-                    i[i<1] = 0
-                    seg_logits.append(i.cpu().detach().numpy())
+                    seg_logits.append(item.cpu().detach().numpy()[1:2,:,:,:])
             results_dict['seg_logits'] = np.array([item for item in seg_logits])
+
+            fusion_map = []
+            for d in chunk_dicts:
+                for item in d['fusion_map']:
+                    fusion_map.append(item.cpu().detach().numpy()[1:2,:,:,:])
+            results_dict['fusion_map'] = np.array([item for item in fusion_map])
+
+            print('in test')
+            print('mask_map',results_dict['seg_preds'].shape)
+            print('seg_map',results_dict['seg_logits'].shape)
+            print('fusion_map',results_dict['fusion_map'].shape)
 
             if self.mode == 'val':
                 # estimate metrics by mean over batch_chunks. Most similar to training metrics.
