@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
+import SimpleITK as sitk
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -21,38 +21,101 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 import os
 from copy import deepcopy
+import torch
+import torch.nn.functional as F
+from utils.model_utils import dice_val
+from utils.model_utils import get_one_hot_encoding 
+def save_seg_result(cf,epoch,pid,seg_map,mask_map,fusion_map):
+    if cf.test_last_epoch == False:
+        pth = cf.plot_dir + '3D_result_epoch{}/'.format(epoch) 
+    else:
+        pth = cf.plot_dir + '3D_result_lastepoch{}/'.format(epoch)
+    if not os.path.exists(pth):
+        os.mkdir(pth)
+    seg_map = np.squeeze(seg_map).astype(np.uint8)
+    mask_map = np.squeeze(mask_map).astype(np.uint8)
+    fusion_map = np.squeeze(fusion_map).astype(np.uint8)
+
+    seg_map_pth = pth + '{}_epoch{}_segmap.nii.gz'.format(pid,epoch)
+    mask_map_pth = pth + '{}_epoch{}_maskmap.nii.gz'.format(pid,epoch)
+    fusion_map_pth = pth + '{}_epoch{}_fusionmap.nii.gz'.format(pid,epoch)
+
+    seg_map = sitk.GetImageFromArray(seg_map)
+    sitk.WriteImage(seg_map,seg_map_pth)
+    mask_map = sitk.GetImageFromArray(mask_map)
+    sitk.WriteImage(mask_map,mask_map_pth)
+    fusion_map = sitk.GetImageFromArray(fusion_map)
+    sitk.WriteImage(fusion_map,fusion_map_pth)
+def savedice_csv(cf,epoch,pidlist,seg_dice,mask_dice,fusion_dice):
+    if cf.test_last_epoch == True:
+        pth = cf.test_dir + 'dice_lastepoch{}.csv'.format(epoch)
+    else:
+        pth = cf.test_dir + 'dice_epoch{}.csv'.format(epoch)
+    print('saving csv to',pth)
+    f = open(pth,'w+')
+    f.write('%s,%s,%s,%s\n'%('patient','maskdice','segdice','fusiondice'))
+    for ii,pid in enumerate(pidlist):
+        print('pid',pid)
+        f.write('%s,%.2f,%.2f,%.2f\n'%(pid,(mask_dice[ii]),(seg_dice[ii]),(fusion_dice[ii])))
+        f.flush()
+    maskdice = sum(mask_dice)/float(len(mask_dice))
+    segdice = sum(seg_dice)/float(len(seg_dice))
+    fusiondice = sum(fusion_dice)/float(len(fusion_dice))
+    f.write('%s,%.2f,%.2f,%.2f\n'%('average',(maskdice),(segdice),(fusiondice)))
+    f.flush()
+    f.close()
 def save_test_image(results_list,results_list_mask,results_list_seg,results_list_fusion, epoch,cf,pth,mode = 'test'):
+    print('in save_test_image')
     if cf.test_last_epoch == False:
         pth = pth + 'epoch_{}/'.format(epoch)
     else:
         pth = pth + 'lastepoch_{}/'.format(epoch)
     if not os.path.exists(pth):
         os.mkdir(pth)
+    mask_dice,seg_dice,fusion_dice,pidlist =[], [],[],[]
     for ii,box_pid in enumerate(results_list):
         pid = box_pid[1]
+        pidlist.append(pid)
         boxes = box_pid[0][0]
-
-        mask_map = np.squeeze(results_list_mask[ii][0])
-        mask_map = np.transpose(mask_map,axes = (0,1,2))[np.newaxis]
-        mask_map = np.transpose(mask_map, axes=(3, 0, 1, 2))#128,1,64,128
-        seg_map = np.squeeze(results_list_seg[ii][0])
-        seg_map = np.transpose(seg_map,axes = (0,1,2))[np.newaxis]
-        seg_map = np.transpose(seg_map, axes=(3, 0, 1, 2))#128,1,64,128
-        #print('mask_map',mask_map.shape)
-        #print('seg_map',seg_map.shape)
-        fusion_map = np.squeeze(results_list_fusion[ii][0])
-        fusion_map = np.transpose(fusion_map,axes = (0,1,2))[np.newaxis]
-        fusion_map = np.transpose(fusion_map, axes=(3, 0, 1, 2))#128,1,64,128
-        print('mask_map',mask_map.shape)
-        print('seg_map',seg_map.shape)
-        print('fusion_map',fusion_map.shape)
 
         img = np.load(cf.pp_test_data_path + pid + '_img.npy')
         img = np.transpose(img,axes = (1,2,0))[np.newaxis]
         data = np.transpose(img, axes=(3, 0, 1, 2))#128,1,64,128
         seg = np.load(cf.pp_test_data_path + pid + '_rois.npy')
         seg = np.transpose(seg,axes = (1,2,0))[np.newaxis]
+        this_batch_seg_label = np.expand_dims(seg,axis=0)#seg[np.newaxis,:,:,:,:]
+        this_batch_seg_label = get_one_hot_encoding(this_batch_seg_label, cf.num_seg_classes+1)
         seg = np.transpose(seg, axes=(3, 0, 1, 2))#128,1,64,128
+
+        mask_map = np.squeeze(results_list_mask[ii][0])
+        mask_map = np.transpose(mask_map,axes = (0,1,2))[np.newaxis]
+        mask_map_ = np.expand_dims(mask_map,axis=0)
+        this_batch_dice_mask = dice_val(torch.from_numpy(mask_map_),torch.from_numpy(this_batch_seg_label))
+        mask_map = np.transpose(mask_map, axes=(3, 0, 1, 2))#128,1,64,128
+        mask_map[mask_map>0.5] = 1
+        mask_map[mask_map<1] = 0
+
+        seg_map = np.squeeze(results_list_seg[ii][0])
+        seg_map = np.transpose(seg_map,axes = (0,1,2))[np.newaxis]
+        seg_map_ = np.expand_dims(seg_map,axis=0)
+        this_batch_dice_seg = dice_val(torch.from_numpy(seg_map_),torch.from_numpy(this_batch_seg_label))
+        seg_map = np.transpose(seg_map, axes=(3, 0, 1, 2))#128,1,64,128
+        seg_map[seg_map>0.5] = 1
+        seg_map[seg_map<1] = 0
+
+        fusion_map = np.squeeze(results_list_fusion[ii][0])
+        fusion_map = np.transpose(fusion_map,axes = (0,1,2))[np.newaxis]
+        fusion_map_ = np.expand_dims(fusion_map,axis=0)
+        this_batch_dice_fusion = dice_val(torch.from_numpy(fusion_map_),torch.from_numpy(this_batch_seg_label))
+        fusion_map = np.transpose(fusion_map, axes=(3, 0, 1, 2))#128,1,64,128
+        fusion_map[fusion_map>0.5] = 1
+        fusion_map[fusion_map<1] = 0
+
+        save_seg_result(cf,epoch,pid,seg_map,mask_map,fusion_map)
+
+        mask_dice.append(this_batch_dice_mask)
+        seg_dice.append(this_batch_dice_seg)
+        fusion_dice.append(this_batch_dice_fusion)
 
         gt_boxes = [box['box_coords'] for box in boxes if box['box_type'] == 'gt']
         slice_num = 5 
@@ -80,7 +143,7 @@ def save_test_image(results_list,results_list_mask,results_list_seg,results_list
         kwargs={'linewidth':0.2,
                 'alpha':1,
                 }
-        show_arrays = np.concatenate([data,data,data,data,data], axis=1).astype(float)#10,2,79,219
+        show_arrays = np.concatenate([data,data,data,data], axis=1).astype(float)#10,2,79,219
         approx_figshape = (4*show_arrays.shape[0], show_arrays.shape[1])
         fig = plt.figure(figsize=approx_figshape)
         gs = gridspec.GridSpec(show_arrays.shape[1] + 1, show_arrays.shape[0])
@@ -94,10 +157,6 @@ def save_test_image(results_list,results_list_mask,results_list_seg,results_list
                 vmin = None
                 vmax = None
 
-                if m == 0:#the first row
-                    plt.title('{}'.format(pids[b][:10]), fontsize=8)
-                    ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
-                    ax.contour(np.squeeze(seg[b][0:1,:,:]),colors = 'red',linewidth=1,alpha=1)
                 if m == 1:
                     ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
                     ax.contour(np.squeeze(mask_map[b][0:1,:,:]),colors = 'yellow',linewidth=1,alpha=1)
@@ -107,7 +166,10 @@ def save_test_image(results_list,results_list_mask,results_list_seg,results_list
                 if m == 3:
                     ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
                     ax.contour(np.squeeze(fusion_map[b][0:1,:,:]),colors = 'orange',linewidth=1,alpha=1)
-                if m == 4:
+                if m == 0:
+                    plt.title('{}'.format(pids[b][:10]), fontsize=8)
+                    ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
+                    ax.contour(np.squeeze(seg[b][0:1,:,:]),colors = 'red',linewidth=1,alpha=1)
                     plot_text = False 
                     ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
                     for box in roi_results[b]:
@@ -145,6 +207,7 @@ def save_test_image(results_list,results_list_mask,results_list_seg,results_list
         except:
             raise Warning('failed to save plot.')
 
+    savedice_csv(cf,epoch,pidlist,seg_dice,mask_dice,fusion_dice)
 def save_monitor_valuse(cf,test_df,epoch,flag = 'val'):
     pth = cf.exp_dir
     filename = flag+'_{}'.format(epoch)+'.csv'
@@ -168,27 +231,31 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
     if len(set(pids)) == 1:
         pids = [pids] * data.shape[0]
 
-    mask_map = results_dict['seg_preds'][:,1:2,:,:,:]
-    mask_map[mask_map>0.5] = 1
-    mask_map[mask_map<1] = 0
+    if mode == 'val_patient':
+        mask_map = results_dict['seg_preds']#.cpu().detach().numpy()
+        seg_map = results_dict['seg_logits']#.cpu().detach().numpy()
+        fusion_map = results_dict['fusion_map']#.cpu().detach().numpy()
+    else:
+    #mask_map = torch.tensor(results_dict['seg_preds']).cuda()
+        if cf.fusion_feature_method == 'after':
+            mask_map = results_dict['seg_preds'][:,1:2,:,:,:].cpu().detach().numpy()
+        else:
+            mask_map = F.softmax(results_dict['seg_preds'], dim=1)[:,1:2,:,:,:].cpu().detach().numpy()# N,2,64,128,128
 
-    seg_map = results_dict['seg_logits'][:,1:2,:,:,:].cpu().detach().numpy()
-    seg_map[seg_map>0.5] = 1
-    seg_map[seg_map<1] = 0
+        if cf.fusion_feature_method == 'after':
+            seg_map = results_dict['seg_logits'][:,1:2,:,:,:].cpu().detach().numpy()
+        else:
+            seg_map = F.softmax(results_dict['seg_logits'], dim=1)[:,1:2,:,:,:].cpu().detach().numpy()
 
-    fusion_map = results_dict['fusion_map'][:,1:2,:,:,:].cpu().detach().numpy()
-    fusion_map[fusion_map>0.5] = 1
-    fusion_map[fusion_map<1] = 0
+        fusion_map = results_dict['fusion_map'][:,1:2,:,:,:].cpu().detach().numpy()
 
     roi_results = deepcopy(results_dict['boxes'])#len == batch size
     # Randomly sampled one patient of batch and project data into 2D slices for plotting.
     if cf.dim == 3:
         patient_ix = np.random.choice(data.shape[0])
-        #print('plotting',pids[patient_ix])
         data = np.transpose(data[patient_ix], axes=(3, 0, 1, 2))#128,1,64,128
         # select interesting foreground section to plot.
         gt_boxes = [box['box_coords'] for box in roi_results[patient_ix] if box['box_type'] == 'gt']
-        #print('gt_boxes',gt_boxes)
         if len(gt_boxes) > 0:
             center = int((gt_boxes[0][5]-gt_boxes[0][4])/2+gt_boxes[0][4])
             z_cuts = [np.max((center - 5, 0)), np.min((center + 5, data.shape[0]))]#max len = 10
@@ -202,7 +269,6 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
             b = box['box_coords']
             # dismiss negative anchor slices.
             slices = np.round(np.unique(np.clip(np.arange(b[4], b[5] + 1), 0, data.shape[0]-1)))
-            #print('slices',slices)
             for s in slices:
                 roi_results[int(s)].append(box)
                 roi_results[int(s)][-1]['box_coords'] = b[:4]#change 3d box to 2d
@@ -222,7 +288,6 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
         raise Warning('Shapes of arrays to plot not in agreement!'
                       'Shapes {} vs. {} vs {}'.format(data.shape, segs.shape, mask_map.shape))
 
-
     show_arrays = np.concatenate([data[:,0][:,None], segs, mask_map, seg_map, fusion_map], axis=1).astype(float)
     approx_figshape = (4 * show_arrays.shape[0], 4 * show_arrays.shape[1])
     fig = plt.figure(figsize=approx_figshape)
@@ -234,15 +299,14 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
 
             ax = plt.subplot(gs[m, b])
             ax.axis('off')
-            #if m < show_arrays.shape[1]:#the first row
             arr = show_arrays[b, m]#get image to be shown
 
-            if m < data.shape[1]:# or m == show_arrays.shape[1] - 1:#the first row and the forth row data = 10,1,64,128 
+            if m == 0:
                 cmap = 'gray'
                 vmin = None
                 vmax = None
             else:
-                cmap = None
+                cmap = 'jet' 
                 vmin = 0
                 vmax = 1#cf.num_seg_classes - 1
 
@@ -258,13 +322,6 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
                             plot_text = True
                             score = box['box_score']
                             score_text = '{:.2f}'.format(score*100)
-                            # if prob detection: plot only boxes from correct sampling instance.
-                            #if 'sample_id' in box.keys() and int(box['sample_id']) != m - data.shape[1] - 2:
-                            #    continue
-                            # if prob detection: plot reconstructed boxes only in corresponding line.
-                            #if not 'sample_id' in box.keys() and  m != data.shape[1] + 1:
-                            #    continue
-
                             score_font_size = 7
                             text_color = 'w'
                             text_x = coords[1] #+ 10*(box['box_pred_class_id'] -1) #avoid overlap of scores in plot.

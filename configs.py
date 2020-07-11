@@ -24,7 +24,7 @@ class configs(DefaultConfigs):
 
     def __init__(self):
 
-        self.gpu = '6'
+        self.gpu = '0'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
 
         #########################
@@ -36,7 +36,6 @@ class configs(DefaultConfigs):
 
         # one out of ['mrcnn', 'seg_mrcnn','retina_net', 'retina_unet', 'detection_unet', 'ufrcnn', 'detection_unet'].
         self.model = 'mrcnn'
-        #self.seg_flag = True
 
         DefaultConfigs.__init__(self, self.model, self.dim)
 
@@ -51,17 +50,22 @@ class configs(DefaultConfigs):
         #      Data Loader      #
         #########################
 
+        # data aug in training
+        self.data_aug_training = False
         # select modalities from preprocessed data
         self.channels = [0]
         self.n_channels = len(self.channels)
 
         # patch_size to be used for training. pre_crop_size is the patch_size before data augmentation.
-        self.pre_crop_size_2D = [300, 300]
-        self.patch_size_2D = [288, 288]
-        self.pre_crop_size_3D = [ 72,144,144]
+        #self.pre_crop_size_2D = [300, 300]
+        #self.patch_size_2D = [288, 288]
+        if self.data_aug_training == True:
+            self.pre_crop_size_3D = [ 72,144,144]
+        else:
+            self.pre_crop_size_3D = [64,128,128]
         self.patch_size_3D = [64,128,128]#[128, 128, 64]
-        self.patch_size = self.patch_size_2D if self.dim == 2 else self.patch_size_3D
-        self.pre_crop_size = self.pre_crop_size_2D if self.dim == 2 else self.pre_crop_size_3D
+        self.patch_size = self.patch_size_3D#self.patch_size_2D if self.dim == 2 else self.patch_size_3D
+        self.pre_crop_size = self.pre_crop_size_3D#self.pre_crop_size_2D if self.dim == 2 else self.pre_crop_size_3D
 
         # ratio of free sampled batch elements before class balancing is triggered
         # (>0 to include "empty"/background patches.)
@@ -72,9 +76,13 @@ class configs(DefaultConfigs):
         #########################
 
         self.backbone_path = 'models/backbone_vnet.py'
+        self.multi_scale_det = False 
         self.start_filts = 48 if self.dim == 2 else 18
         if 'vnet' in self.backbone_path:
-            self.end_filts = [32,64,128,256,256] 
+            if self.multi_scale_det == False:
+                self.end_filts = [32,64,128,256,256] 
+            else:
+                self.end_filts = [36,36,36,36,36] #self.start_filts * 4 if self.dim == 2 else self.start_filts * 2
         if 'fpn' in self.backbone_path:
             self.end_filts = [36,36,36,36,36] #self.start_filts * 4 if self.dim == 2 else self.start_filts * 2
         self.res_architecture = 'resnet50' # 'resnet101' , 'resnet50'
@@ -87,35 +95,44 @@ class configs(DefaultConfigs):
         #########################
         #  Schedule / Selection #
         #########################
-        self.debug = 0 
+        self.debug = 1 
         if self.debug == 1:
             self.num_epochs = 2 
             self.num_train_batches = 2#2 if self.dim == 2 else 2 
             self.batch_size = 2#20 if self.dim == 2 else 2 
             self.n_workers = 1
         else:
-            self.num_epochs = 300
-            self.num_train_batches = 200 if self.dim == 2 else 200 
+            self.num_epochs = 200 
+            self.num_train_batches = 200 if self.dim == 2 else 300 
             self.batch_size = 20 if self.dim == 2 else 2 
             self.n_workers = 16
 
         self.do_validation = True
         # decide whether to validate on entire patient volumes (like testing) or sampled patches (like training)
         # the former is morge accurate, while the latter is faster (depending on volume size)
-        self.val_mode = 'val_sampling' # one of 'val_sampling' , 'val_patient'
-        if self.val_mode == 'val_patient':
-            self.max_val_patients = None  # if 'None' iterates over entire val_set once.
-        if self.val_mode == 'val_sampling':
-            if self.debug == 1:
-                self.num_val_batches = 2
-            else:
-                self.num_val_batches = 20
+        self.val_mode = 'val_sampling' # this is a bug only sampling one of 'val_sampling' , 'val_patient'
+        if self.debug == 1:
+            self.num_val_batches = 2
+        else:
+            self.num_val_batches = None 
 
         #########################
         # loss  #
         #########################
         # in ['seg-only','mrcnn-only','frcnn-only','mrcnn-seg','frcnn-seg','mrcnn-seg-fusion']
         self.loss_flag = 'mrcnn-seg-fusion'
+
+        # in ['BCE','roiDice','mapDice']
+        self.mask_loss_flag = 'roiDice'
+
+        #########################
+        # fusion method  #
+        #########################
+        # in ['cat-only','add-only','weight-cat','weight-add']
+        self.fusion_method = 'add-only'
+
+        # in ['before','after']
+        self.fusion_feature_method = 'after'
 
         #########################
         #   Testing / Plotting  #
@@ -148,7 +165,13 @@ class configs(DefaultConfigs):
         self.patient_class_of_interest = 1  # patient metrics are only plotted for one class.
         self.ap_match_ious = [0.1]  # list of ious to be evaluated for ap-scoring.
 
-        self.model_selection_criteria = ['val_dice_seg','val_dice_mask','val_dice_fusion']#criteria to average over for saving epochs.
+        #['val_dice_seg','val_dice_mask','val_dice_fusion']#criteria to average over for saving epochs.
+        if 'seg' in self.loss_flag and 'seg-only' not in self.loss_flag:
+            self.model_selection_criteria = ['val_dice_fusion']#criteria to average over for saving epochs.
+        if 'seg-only' in self.loss_flag:
+            self.model_selection_criteria = ['val_deice_seg']
+        if 'seg' not in self.loss_flag:
+            self.model_selection_criteria = ['val_precision','val_recall']
         self.min_det_thresh = 0.1  # minimum confidence value to select predictions for evaluation.
 
         #########################
@@ -218,7 +241,7 @@ class configs(DefaultConfigs):
 
     def add_mrcnn_configs(self):
         # learning rate is a list with one entry per epoch.
-        self.decrease_lr = 150
+        self.decrease_lr = 120 
         self.learning_rate = [1e-4] * self.decrease_lr + [1e-5] * (self.num_epochs - self.decrease_lr)
 
         # disable the re-sampling of mask proposals to original size for speed-up.
@@ -248,7 +271,11 @@ class configs(DefaultConfigs):
         # per pyramid level. (outer list are pyramid levels (corresponding to BACKBONE_STRIDES), inner list are scales per level.)
 
         # choose which pyramid levels to extract features from: P2: 0, P3: 1, P4: 2, P5: 3.
-        self.pyramid_levels = [4]
+        # for vnet [0,1,2,3,4]
+        if self.multi_scale_det == False:
+            self.pyramid_levels = [4]
+        else:
+            self.pyramid_levels = [0,1,2,3,4]
 
         # number of feature maps in rpn. typically lowered in 3D to save gpu-memory.
         self.n_rpn_features = 512 if self.dim == 2 else 128

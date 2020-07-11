@@ -71,7 +71,6 @@ class Predictor:
         if self.mode == 'test':
             try:
                 self.epoch_ranking = np.load(os.path.join(self.cf.fold_dir, 'epoch_ranking.npy'))[:cf.test_n_epochs]
-                print('epoch_ranking',self.epoch_ranking)
             except:
                 raise RuntimeError('no epoch ranking file in fold directory. '
                                    'seems like you are trying to run testing without prior training...')
@@ -109,14 +108,6 @@ class Predictor:
                                                      'box_label': batch['patient_roi_labels'][b][t],
                                                      'box_type': 'gt'})
 
-            if self.patched_patient:
-                wcs_input = [results_dict['boxes'], 'dummy_pid', self.cf.class_dict, self.cf.wcs_iou, self.n_ens]
-                results_dict['boxes'] = apply_wbc_to_patient(wcs_input)[0]
-
-            if self.cf.merge_2D_to_3D_preds:
-                merge_dims_inputs = [results_dict['boxes'], 'dummy_pid', self.cf.class_dict, self.cf.merge_3D_iou]
-                results_dict['boxes'] = merge_2D_to_3D_preds_per_patient(merge_dims_inputs)[0]
-
         return results_dict
     def predict_test_set(self, batch_gen,cf, return_results=True):
         """
@@ -130,7 +121,6 @@ class Predictor:
                             (if not merged to 3D), and a dummy batch dimension of 1 for 3D predictions.
                  - 'seg_preds': not implemented yet. todo for evaluation of instance/semantic segmentation.
         """
-        #print('in predict_test_set')
         dict_of_patient_results = OrderedDict()
 
         # get paths of all parameter sets to be loaded for temporal ensembling. (or just one for no temp. ensembling).
@@ -138,7 +128,7 @@ class Predictor:
         weight_paths.append(os.path.join(self.cf.fold_dir,'last_checkpoint/params.pth'))
 
         if self.cf.test_last_epoch == False:
-            testnum = 0 
+            testnum = self.cf.testing_epoch_num 
             weight_paths_ = [weight_paths[testnum]]
             testing_epoch = self.epoch_ranking[testnum]
         else:
@@ -159,10 +149,9 @@ class Predictor:
             self.net.eval()
             self.rank_ix = str(rank_ix)  # get string of current rank for unique patch ids.
             with torch.no_grad():
-                print('batch_gen',batch_gen['n_test'])
                 for _ in range(batch_gen['n_test']):
-
                     batch = next(batch_gen['test'])
+                    print('testing pid',batch['pid'])
                     for i in batch['patient_roi_labels']:
                         if i[0] > 0:
                             batch['patient_roi_labels'][0] = [1]
@@ -175,7 +164,6 @@ class Predictor:
                         dict_of_patient_results[batch['pid']]['fusion_map'] = []
                         dict_of_patient_results[batch['pid']]['patient_bb_target'] = batch['patient_bb_target']
                         dict_of_patient_results[batch['pid']]['patient_roi_labels'] = batch['patient_roi_labels']
-                        print('testing pid',batch['pid'])
 
                     # call prediction pipeline and store results in dict.
                     results_dict = self.predict_patient(batch)#pred box and seg of this batch
@@ -338,7 +326,7 @@ class Predictor:
             patches_dict = self.batch_tiling_forward(batch)#return resultdict of this batch flatten
 
             results_dict = {'boxes': [[] for _ in range(batch['original_img_shape'][0])]}
-            #print('shape',batch['original_img_shape'])#1,1,76,290,318
+            print('shape',batch['original_img_shape'])#1,1,76,290,318
             # instanciate segemntation output array. Will contain averages over patch predictions.
             out_seg_preds = np.zeros(batch['original_img_shape'], dtype=np.float16)[:, 0][:, None]
             patch_overlap_map = np.zeros_like(out_seg_preds, dtype='uint8')
@@ -346,11 +334,6 @@ class Predictor:
                 if self.cf.dim == 3:
                     out_seg_preds[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += patches_dict['seg_preds'][pix][None]
                     patch_overlap_map[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += 1
-                else:
-                    out_seg_preds[pc[4]:pc[5], :, pc[0]:pc[1], pc[2]:pc[3], ] += patches_dict['seg_preds'][pix]
-                    patch_overlap_map[pc[4]:pc[5], :, pc[0]:pc[1], pc[2]:pc[3], ] += 1
-
-            # take mean in overlapping areas.
             out_seg_preds[patch_overlap_map > 0] /= patch_overlap_map[patch_overlap_map > 0]
             results_dict['seg_preds'] = out_seg_preds
 
@@ -371,6 +354,7 @@ class Predictor:
                     patch_overlap_map_fusion[:, :, pc[0]:pc[1], pc[2]:pc[3], pc[4]:pc[5]] += 1
             out_seg_fusion[patch_overlap_map_fusion > 0] /= patch_overlap_map_fusion[patch_overlap_map_fusion > 0]
             results_dict['fusion_map'] = out_seg_fusion#patches_dict['seg_logits'] 
+
             # unmold box outputs. loop over patches.
             for pix, pc in enumerate(patch_crops):#pc is location
                 patch_boxes = patches_dict['boxes'][pix]
@@ -459,13 +443,21 @@ class Predictor:
             seg_preds = []
             for d in chunk_dicts:
                 for item in d['seg_preds']:
-                    seg_preds.append(item[1:2,:,:,:])
+                    if self.cf.fusion_feature_method == 'before':
+                        seg_preds.append(F.softmax(item, dim=0).cpu().detach().numpy()[1:2,:,:,:])
+                        #seg_preds.append(F.softmax(item, dim=0).cpu().detach().numpy())
+                    if self.cf.fusion_feature_method == 'after':
+                        seg_preds.append(item.cpu().detach().numpy()[1:2,:,:,:])
             results_dict['seg_preds'] = np.array([item for item in seg_preds])
 
             seg_logits = []
             for d in chunk_dicts:
                 for item in d['seg_logits']:
-                    seg_logits.append(item.cpu().detach().numpy()[1:2,:,:,:])
+                    if self.cf.fusion_feature_method == 'before':
+                        seg_logits.append(F.softmax(item, dim=0).cpu().detach().numpy()[1:2,:,:,:])
+                        #seg_logits.append(F.softmax(item, dim=0).cpu().detach().numpy())
+                    else:
+                        seg_logits.append(item.cpu().detach().numpy()[1:2,:,:,:])
             results_dict['seg_logits'] = np.array([item for item in seg_logits])
 
             fusion_map = []

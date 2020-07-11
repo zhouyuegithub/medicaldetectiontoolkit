@@ -77,10 +77,13 @@ class DownTransition(nn.Module):
 class WeightLayer(nn.Module):
     def __init__(self, inChans, outChans, kernel_size, elu):
         super(WeightLayer,self).__init__()
-        self.we_layer = nn.Conv3d(inChans,outChans,kernel_size=kernel_size,padding=0)
+        self.we_layer_seg = nn.Conv3d(inChans,outChans,kernel_size=kernel_size,padding=0)
+        self.we_layer_mask = nn.Conv3d(inChans,outChans,kernel_size=kernel_size,padding=0)
+
     def forward(self,x):
-        out = self.we_layer(x)
-        return out
+        weight_layer_seg = self.we_layer_seg(x)
+        weight_layer_mask = self.we_layer_mask(x)
+        return (weight_layer_seg, weight_layer_mask) 
 
 class UpTransition(nn.Module):
     def __init__(self, inChans, outChans, nConvs, elu, dropout=False, dilation = False):
@@ -109,19 +112,22 @@ class UpTransition(nn.Module):
 
 
 class OutputTransition(nn.Module):
-    def __init__(self, inChans, elu):
+    def __init__(self, cf, inChans, elu):
         super(OutputTransition, self).__init__()
+        self.cf = cf
         self.conv1 = nn.Conv3d(inChans, 2, kernel_size=5, padding=2)
         self.bn1 = nn.BatchNorm3d(2)
         self.relu1 = ELUCons(elu, 2)
         self.conv2 = nn.Conv3d(2, 2, kernel_size=1)
-        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         # convolve 32 down to 2 channels
         out = self.relu1(self.bn1(self.conv1(x)))
         out = self.conv2(out)
-        out = self.sigmoid(out)
+        if self.cf.fusion_feature_method == 'after':
+            out = F.softmax(out, dim=1)
+        else:
+            out = out
 
         return out
 
@@ -140,8 +146,8 @@ class VNet(nn.Module):
         self.up_tr128 = UpTransition(256, 128, 2, elu, dropout=True)
         self.up_tr64 = UpTransition(128, 64, 1, elu)
         self.up_tr32 = UpTransition(64, 32, 1, elu)
-        self.we_layer = WeightLayer(32,2+2,1,elu)
-        self.out_tr = OutputTransition(32, elu)
+        self.we_layer = WeightLayer(32,2,1,elu)
+        self.out_tr = OutputTransition(self.cf, 32, elu)
 
     def forward(self, x):
         out16 = self.in_tr(x)
@@ -155,10 +161,9 @@ class VNet(nn.Module):
         outup128 = self.up_tr128(outup256, out64)
         outup64 = self.up_tr64(outup128, out32)
         outup32 = self.up_tr32(outup64, out16)
-        out_we = self.we_layer(outup32)
+        weight_layer_seg, weight_layer_mask = self.we_layer(outup32)
         outmap = self.out_tr(outup32)
         output = []
-        #if self.cf.seg_flag == True:
         output.append(outmap)
         output.append(outup32)
         output.append(outup64)
@@ -167,7 +172,7 @@ class VNet(nn.Module):
         output.append(out256)
         #for o in output:
         #    print('features each level',o.shape)
-        return output,out_we 
+        return output, weight_layer_seg, weight_layer_mask 
 
 if __name__ == '__main__':
     model = VNet(1,2)

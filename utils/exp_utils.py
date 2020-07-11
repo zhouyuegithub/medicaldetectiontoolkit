@@ -212,23 +212,23 @@ def prepare_monitoring(cf):
     # first entry for loss dict accounts for epoch starting at 1.
     metrics['train'] = OrderedDict()
     metrics['val'] = OrderedDict()
-    metric_classes = []
+    #metric_classes = []
     #print('in prepare_monitoring')
-    if 'rois' in cf.report_score_level:#['patients,rois']
-        metric_classes.extend([v for k, v in cf.class_dict.items()])#{'1':benign,'2':malignant}
-    if 'patient' in cf.report_score_level:
-        metric_classes.extend(['patient'])
-    #print('metric_classes',metric_classes)
-    for cl in metric_classes:#benign malignant patient
-        metrics['train'][cl + '_ap'] = [None]
-        metrics['val'][cl + '_ap'] = [None]
-        if cl == 'patient':
-            metrics['train'][cl + '_auc'] = [None]
-            metrics['val'][cl + '_auc'] = [None]
+    #if 'rois' in cf.report_score_level:#['patients,rois']
+    #    metric_classes.extend([v for k, v in cf.class_dict.items()])#{'1':benign,'2':malignant}
+    #if 'patient' in cf.report_score_level:
+    #    metric_classes.extend(['patient'])
+    ##print('metric_classes',metric_classes)
+    #for cl in metric_classes:#benign malignant patient
+    #    metrics['train'][cl + '_ap'] = [None]
+    #    metrics['val'][cl + '_ap'] = [None]
+    #    if cl == 'patient':
+    #        metrics['train'][cl + '_auc'] = [None]
+    #        metrics['val'][cl + '_auc'] = [None]
     metrics['train']['train_recall'] = [None]
     metrics['train']['train_percision'] = [None]
     metrics['val']['val_recall'] = [None]
-    metrics['val']['val_percision'] = [None]
+    metrics['val']['val_precision'] = [None]
     metrics['val']['val_dice_seg'] = [None]
     metrics['val']['val_dice_mask'] = [None]
     metrics['val']['val_dice_fusion'] = [None]

@@ -61,9 +61,6 @@ def get_train_generators(cf, logger):
     train_pids = [all_pids_list[ix] for ix in train_ix]
     val_pids = [all_pids_list[ix] for ix in val_ix]
 
-    if cf.hold_out_test_set:#default: False
-        train_pids += [all_pids_list[ix] for ix in test_ix]
-
     train_data = {k: v for (k, v) in all_data.items() if any(p == v['pid'] for p in train_pids)}
     val_data = {k: v for (k, v) in all_data.items() if any(p == v['pid'] for p in val_pids)}
     logger.info("data set loaded with: {} train / {} val / {} test patients".format(len(train_ix), len(val_ix), len(test_ix)))
@@ -73,7 +70,8 @@ def get_train_generators(cf, logger):
     batch_gen['val_sampling'] = create_data_gen_pipeline(val_data, cf=cf, is_training=False)# center croped
     if cf.val_mode == 'val_patient':#val_sampling
         batch_gen['val_patient'] = PatientBatchIterator(val_data, cf=cf)
-        batch_gen['n_val'] = len(val_ix) if cf.max_val_patients is None else min(len(val_ix), cf.max_val_patients)
+        #batch_gen['n_val'] = len(val_ix) if cf.max_val_patients is None else min(len(val_ix), cf.max_val_patients)
+        batch_gen['n_val'] = len(val_ix) if cf.num_val_batches is None else min(len(val_ix), cf.num_val_batches)
     else:
         if cf.debug == 1:
             batch_gen['n_val'] = 2#len(val_ix)#cf.num_val_batches#50
@@ -97,9 +95,11 @@ def get_test_generator(cf, logger):
     logger.info("data set loaded with: {} test patients".format(len(test_ix)))
     batch_gen = {}
     batch_gen['test'] = PatientBatchIterator(test_data, cf=cf)
-    #batch_gen['n_test'] =  len(test_ix) if cf.max_test_patients=="all" else \
-    #    min(cf.max_test_patients, len(test_ix))
-    batch_gen['n_test'] = 2 
+    if cf.debug == 1:
+        batch_gen['n_test'] = 1 
+    else:
+        batch_gen['n_test'] =  len(test_ix) if cf.max_test_patients=="all" else \
+            min(cf.max_test_patients, len(test_ix))
     return batch_gen
 
 
@@ -152,7 +152,6 @@ def create_data_gen_pipeline(patient_data, cf, is_training=True):
     if is_training:
         data_gen = BatchGenerator(patient_data, batch_size=cf.batch_size, cf=cf)#batch_size = 8
         mirror_transform = Mirror(axes=np.arange(cf.dim))
-        my_transforms.append(mirror_transform)
         spatial_transform = SpatialTransform(patch_size=cf.patch_size[:cf.dim],
                                              patch_center_dist_from_border=cf.da_kwargs['rand_crop_dist'],
                                              do_elastic_deform=cf.da_kwargs['do_elastic_deform'],
@@ -162,7 +161,9 @@ def create_data_gen_pipeline(patient_data, cf, is_training=True):
                                              do_scale=cf.da_kwargs['do_scale'], scale=cf.da_kwargs['scale'],
                                              random_crop=cf.da_kwargs['random_crop'])
 
-        my_transforms.append(spatial_transform)
+        if cf.data_aug_training == True:
+            my_transforms.append(mirror_transform)
+            my_transforms.append(spatial_transform)
     else:
         data_gen = BatchGenerator(patient_data, batch_size=1, cf=cf)#batch_size = 8
         my_transforms.append(CenterCropTransform(crop_size=cf.patch_size[:cf.dim]))
@@ -331,10 +332,7 @@ class PatientBatchIterator(SlimDataLoaderBase):
         if self.cf.dim == 3 or self.cf.merge_2D_to_3D_preds:#default True
             out_data = data[np.newaxis]
             out_seg = seg[np.newaxis, np.newaxis]
-            #print('outdata size',out_data.shape)
-            #print('outseg size',out_seg.shape)
             out_targets = batch_class_targets
-            #print('out_targets',out_targets)
 
             batch_3D = {'data': out_data, 'seg': out_seg, 'class_target': out_targets, 'pid': pid}
             converter = ConvertSegToBoundingBoxCoordinates(dim=3, get_rois_from_seg_flag=False, class_specific_seg_flag=False)#default false
@@ -350,9 +348,7 @@ class PatientBatchIterator(SlimDataLoaderBase):
         # crop patient-volume to patches of patch_size used during training. stack patches up in batch dimension.
         # in this case, 2D is treated as a special case of 3D with patch_size[z] = 1.
         if np.any([data.shape[dim + 1] > self.patch_size[dim] for dim in range(3)]):
-            #patch_crop_coords_list = dutils.get_patch_crop_coords(data[0], self.patch_size,min_overlap = 500)
             patch_crop_coords_list = dutils.get_patch_crop_coords_stride(data[0], self.patch_size,self.testing_patch_stride)
-            #print('patch_crop_coords_list',len(patch_crop_coords_list))
             new_img_batch, new_seg_batch, new_class_targets_batch = [], [], []
 
             for cix, c in enumerate(patch_crop_coords_list):
@@ -374,7 +370,6 @@ class PatientBatchIterator(SlimDataLoaderBase):
             data = np.array(new_img_batch) # (n_patches, c, x, y, z)
             seg = np.array(new_seg_batch)[:, np.newaxis]  # (n_patches, 1, x, y, z)
             batch_class_targets = np.repeat(batch_class_targets, len(patch_crop_coords_list), axis=0)
-            #print('data',data.shape)
 
             patch_batch = {'data': data, 'seg': seg, 'class_target': batch_class_targets, 'pid': pid}#classtarget is len == cropsize
             patch_batch['patch_crop_coords'] = np.array(patch_crop_coords_list)

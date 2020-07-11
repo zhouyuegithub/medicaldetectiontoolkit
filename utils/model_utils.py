@@ -799,11 +799,11 @@ def get_one_hot_encoding(y, n_classes):
     :param n_classes: int, number of classes to unfold in one-hot encoding.
     :return y_ohe: array of shape (b, n_classes, y, x, (z))
     """
-    dim = len(y.shape) - 2
-    if dim == 2:
-        y_ohe = np.zeros((y.shape[0], n_classes, y.shape[2], y.shape[3])).astype('int32')
-    if dim ==3:
-        y_ohe = np.zeros((y.shape[0], n_classes, y.shape[2], y.shape[3], y.shape[4])).astype('int32')
+    #dim = len(y.shape) - 2
+    #if dim == 2:
+    #    y_ohe = np.zeros((y.shape[0], n_classes, y.shape[2], y.shape[3])).astype('int32')
+    #if dim ==3:
+    y_ohe = np.zeros((y.shape[0], n_classes, y.shape[2], y.shape[3], y.shape[4])).astype('int32')
     for cl in range(n_classes):
         y_ohe[:, cl][y[:, 0] == cl] = 1
     return y_ohe
@@ -920,9 +920,9 @@ def dice_val(pre, gt):
     if pre.shape[1] == 1:
         pre = pre.float()
     gt = gt[:,1:2,:,:,:].float()
-    pre[pre>0.5] = 1
-    pre[pre<1] = 0
-    # dice loss
+    pre[pre>0.5] = 1.0
+    pre[pre<1] = 0.0
+    # fg dice 
     eps = 1e-6
     dims = (0,) + tuple(range(2, gt.ndimension())) # (0, 2, 3, 4)
     intersection = torch.sum(pre * gt, dims)

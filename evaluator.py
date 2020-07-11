@@ -36,7 +36,7 @@ class Evaluator():
         self.mode = mode
 
 
-    def evaluate_predictions(self, results_list, epoch,cf,pth='./', monitor_metrics=None,flag = ''):
+    def evaluate_predictions(self, results_list, epoch,cf,pth='./',flag = ''):
         """
         Performs the matching of predicted boxes and ground truth boxes. Loops over list of matching IoUs and foreground classes.
         Resulting info of each prediction is stored as one line in an internal dataframe, with the keys:
@@ -73,7 +73,7 @@ class Evaluator():
             #print('results_list',len(results_list))
             batch_elements_list = [[b_box_list] for item in results_list for b_box_list in item[0]]#this epoch all batch len = batchsize*batchnumber
             pid_list = [pid for item in results_list for pid in item[1]]
-        else:
+        else:#test or val_patient
             # patient processing, one element per batch = one patient.
             # [[results_0, pid_0], [results_1, pid_1], ...] -> [results_0, results_1, ..] , [pid_0, pid_1, ...]
             batch_elements_list = [item[0] for item in results_list]
@@ -82,12 +82,12 @@ class Evaluator():
         total_num = []
         [total_num.append(i) for i in pid_list if not i in total_num] 
         total_num = len(total_num)#total patient number
+
         for match_iou in self.cf.ap_match_ious:
             self.logger.info('evaluating with match_iou: {}'.format(match_iou))
             TP_roi,FP_roi,FN_roi,TN_pat = 0,0,0,0
             for cl in list(self.cf.class_dict.keys()):
                 for pix, pid in enumerate(pid_list):
-                    #len_df_list_before_patient = len(df_list_pids)
                     for bix, b_boxes_list in enumerate(batch_elements_list[pix]):#len == 1
                         b_tar_boxes = np.array([box['box_coords'] for box in b_boxes_list if
                                                 (box['box_type'] == 'gt' and box['box_label'] == cl)])
@@ -141,15 +141,6 @@ class Evaluator():
                             df_list_pids += [pid] * b_cand_scores.shape[0]
                             df_list_type += ['det_fp'] * b_cand_scores.shape[0]
                             FP_roi += b_cand_scores.shape[0]
-                    #if len(df_list_pids) == len_df_list_before_patient:#no box in all batch
-                    #    df_list_preds += [0] * 1
-                    #    df_list_coords += [[0, 0, 0, 0, 0, 0]] * 1
-                    #    df_list_pred_iou += [0] * 1
-                    #    df_list_gt += [gt] * 1
-                    #    df_list_labels += [0] * 1
-                    #    df_list_class_preds += [cl] * 1
-                    #    df_list_pids += [pid] * 1
-                    #    df_list_type += ['patient_tn'] * 1 # true negative: no ground truth boxes, no detections.
             df_list_match_iou += [match_iou] * (len(df_list_preds) - len(df_list_match_iou))
         self.test_df = pd.DataFrame()
         self.test_df['pred_score'] = df_list_preds

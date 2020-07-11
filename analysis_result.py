@@ -155,35 +155,41 @@ def saveFROC(xlabel,ylabel,auc,maxfp,name,th,lastmodel):
     plt.grid(linewidth = 0.5,linestyle = '--')
     plt.tight_layout()
     if lastmodel == True:
-        name = '/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/froc/lastmodel/{}_roc_{}.pdf'.format('lastmodel',th)
+        #name = '/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/froc/lastmodel/{}_roc_{}.pdf'.format('lastmodel',th)
+        name = '/data/yuezhou/mrcnn-fusion-seg/0709_mfs_add_as_roiDice/plots/{}_roc_{}.pdf'.format('lastmodel',th)
     else:
-        name = '/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/froc/bestmodel/roc_{}.pdf'.format(th)
+        #name = '/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/froc/bestmodel/roc_{}.pdf'.format(th)
+        name = '/data/yuezhou/models/baseline/roc_{}.pdf'.format(th)
     plt.savefig(name)
 
 
 if __name__ == '__main__':
     th = 0.7
     iou_th = 0.3
-    lastmodel = True
-    result_pths = '/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/compare/'#'/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/0623_vnetfeaturesmall/test/test_epoch95.csv'
+    lastmodel = False 
+    result_pths = '/data/yuezhou/models/baseline/'
     models = os.listdir(result_pths)
     pths,mm =[], []
     maxfp = []
     for m in models:
         print(m)
-        mm.append(m)
-        pth_ = result_pths+m+'/test/'
-        f = os.listdir(pth_)
-        for ff in f:
-            if lastmodel == True and 'last' in ff:
-                pths.append(pth_+ff)
-            if lastmodel == False and 'last' not in ff:
-                pths.append(pth+ff)
+        if 'bs' not in m:
+            mm.append(m)
+            pth_ = result_pths+m+'/test/'
+            f = os.listdir(pth_)
+            for ff in f:
+                if lastmodel == True and 'last' in ff:
+                    pths.append(pth_+ff)
+                if lastmodel == False and 'last' not in ff and 'test' in ff:
+                    pths.append(pth_+ff)
+    #pths = []
+    #pth = '/data/yuezhou/mrcnn-fusion-seg/0709_mfs_add_as_roiDice/test/test_epoch_35.csv'
+    #pths.append(pth)
     print(pths)
     xlabel,ylabel,name,auclist =[], [],[],[]
     for ii, result_pth in enumerate(pths):
         print('*'*50)
-        print('processing model',mm[ii])
+        #print('processing model',mm[ii])
         predscore, predbox, gtbox, gtlabel,patient_list,iou_list = readcsv(result_pth)
         predbox_list = preocess_box(predbox,patient_list)
         gtbox_list = preocess_box(gtbox,patient_list)
@@ -221,6 +227,7 @@ if __name__ == '__main__':
         ylabel.append(tpr)
         auclist.append(auc)
         name.append(mm[ii])
+        #name.append(result_pth.split('/')[-3])
         maxfp.append(np.array(FP_num).max())
 
     saveFROC(xlabel,ylabel,auclist,maxfp,name,th,lastmodel)

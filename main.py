@@ -45,9 +45,9 @@ def train(logger):
     writer = SummaryWriter(os.path.join(cf.exp_dir,'tensorboard'))
 
     net = model.net(cf, logger).cuda()
-    print('finish initial network')
+
     optimizer = torch.optim.Adam(net.parameters(), lr=cf.learning_rate[0], weight_decay=cf.weight_decay)
-    #print('finish initial optimizer')
+
     model_selector = utils.ModelSelector(cf, logger)
     train_evaluator = Evaluator(cf, logger, mode='train')
     val_evaluator = Evaluator(cf, logger, mode=cf.val_mode)#val_sampling
@@ -55,8 +55,6 @@ def train(logger):
     starting_epoch = 1
 
     # prepare monitoring
-    #monitor_metrics, TrainingPlot = utils.prepare_monitoring(cf)
-    #print('monitor_metrics',monitor_metrics)
     if cf.resume_to_checkpoint:#default: False
         lastepochpth = cf.resume_to_checkpoint + 'last_checkpoint/'
         best_epoch = np.load(lastepochpth + 'epoch_ranking.npy')[0] 
@@ -73,8 +71,6 @@ def train(logger):
         num_val = 0
     logger.info('loading dataset and initializing batch generators...')
     batch_gen = data_loader.get_train_generators(cf, logger)
-    #for k in batch_gen.keys():
-    #    print('k in batch_gen are {}'.format(k))
     best_train_recall,best_val_recall = 0,0
     for epoch in range(starting_epoch, cf.num_epochs + 1):
 
@@ -88,7 +84,6 @@ def train(logger):
         train_results_list = []#this batch
         train_results_list_seg = []
 
-        #print('net.train()')
         for bix in range(cf.num_train_batches):#200
             num_batch += 1
             batch = next(batch_gen['train'])#data,seg,pid,class_target,bb_target,roi_masks,roi_labels
@@ -125,7 +120,7 @@ def train(logger):
             writer.add_scalar('Train/fusion_dice_loss',results_dict['monitor_losses']['fusion_loss_dice'],num_batch)
 
             train_results_list.append([results_dict['boxes'], batch['pid']])#just gt and det
-            monitor_metrics['train']['monitor_values'][epoch].append(results_dict['monitor_values'])
+            monitor_metrics['train']['monitor_values'][epoch].append(results_dict['monitor_losses'])
 
         count_train = train_evaluator.evaluate_predictions(train_results_list,epoch,cf,flag = 'train')
         precision = count_train[0]/ (count_train[0]+count_train[2]+0.01)
@@ -137,7 +132,6 @@ def train(logger):
         writer.add_scalar('Train/train_precision',precision,epoch)
         writer.add_scalar('Train/train_recall',recall,epoch)
         train_time = time.time() - start_time
-        print('*'*50 + 'finish epoch {}'.format(epoch))
 
         logger.info('starting validation in mode {}.'.format(cf.val_mode))
         with torch.no_grad():
@@ -149,30 +143,40 @@ def train(logger):
                 for _ in range(batch_gen['n_val']):#50
                     num_val += 1
                     batch = next(batch_gen[cf.val_mode])
+                    print('eval',batch['pid'])
                     for ii,i in enumerate(batch['roi_labels']):
                         if i[0] > 0:
                             batch['roi_labels'][ii] = [1]
                         else:
                             batch['roi_labels'][ii] = [-1]
                     if cf.val_mode == 'val_patient':
-                        results_dict = val_predictor.predict_patient(batch)
+                        results_dict = val_predictor.predict_patient(batch)#result of one patient
                     elif cf.val_mode == 'val_sampling':
                         results_dict = net.train_forward(batch, is_validation=True)
-                        if (num_val) % cf.show_val_images == 0:
-                            fig = plot_batch_prediction(batch, results_dict, cf,'val')
-                            writer.add_figure('Val/results',fig,num_val)
-                            fig.clear()
+                    if (num_val) % cf.show_val_images == 0:
+                        fig = plot_batch_prediction(batch, results_dict, cf, cf.val_mode)
+                        writer.add_figure('Val/results',fig,num_val)
+                        fig.clear()
 
-                    this_batch_seg_label = torch.FloatTensor(mutils.get_one_hot_encoding(batch['seg'], cf.num_seg_classes+1)).cuda()
                     # compute dice for vnet
-                    #this_batch_dice = mutils.dice_val(F.softmax(results_dict['seg_logits'],dim=1),this_batch_seg_label)
-                    this_batch_dice_seg = mutils.dice_val(results_dict['seg_logits'],this_batch_seg_label)
+                    this_batch_seg_label = torch.FloatTensor(mutils.get_one_hot_encoding(batch['seg'], cf.num_seg_classes+1)).cuda()
+                    if cf.fusion_feature_method == 'after':
+                        this_batch_dice_seg = mutils.dice_val(results_dict['seg_logits'],this_batch_seg_label)
+                    else:
+                        this_batch_dice_seg = mutils.dice_val(F.softmax(results_dict['seg_logits'],dim=1),this_batch_seg_label)
                     dice_val_seg.append(this_batch_dice_seg)
                     # compute dice for mask 
-                    this_batch_dice_mask = mutils.dice_val(torch.from_numpy(results_dict['seg_preds']).cuda(),this_batch_seg_label)
+                    #mask_map = torch.from_numpy(results_dict['seg_preds']).cuda()
+                    if cf.fusion_feature_method == 'after':
+                        this_batch_dice_mask = mutils.dice_val(results_dict['seg_preds'],this_batch_seg_label)
+                    else:
+                        this_batch_dice_mask = mutils.dice_val(F.softmax(results_dict['seg_preds'], dim=1),this_batch_seg_label)
                     dice_val_mask.append(this_batch_dice_mask)
                     # compute dice for fusion
-                    this_batch_dice_fusion = mutils.dice_val(results_dict['fusion_map'],this_batch_seg_label)
+                    if cf.fusion_feature_method == 'after':
+                        this_batch_dice_fusion = mutils.dice_val(results_dict['fusion_map'],this_batch_seg_label)
+                    else:
+                        this_batch_dice_fusion = mutils.dice_val(F.softmax(results_dict['fusion_map'], dim=1),this_batch_seg_label)
                     dice_val_fusion.append(this_batch_dice_fusion)
 
                     val_results_list.append([results_dict['boxes'], batch['pid']])
@@ -186,9 +190,8 @@ def train(logger):
                 val_dice_seg = sum(dice_val_seg)/float(len(dice_val_seg))
                 val_dice_mask = sum(dice_val_mask)/float(len(dice_val_mask))
                 val_dice_fusion = sum(dice_val_fusion)/float(len(dice_val_fusion))
-
                 monitor_metrics['val']['val_recall'].append(recall)
-                monitor_metrics['val']['val_percision'].append(precision) 
+                monitor_metrics['val']['val_precision'].append(precision) 
                 monitor_metrics['val']['val_dice_seg'].append(val_dice_seg)
                 monitor_metrics['val']['val_dice_mask'].append(val_dice_mask)
                 monitor_metrics['val']['val_dice_fusion'].append(val_dice_fusion)
@@ -214,10 +217,14 @@ def test(logger):
     """
     logger.info('starting testing model of fold {} in exp {}'.format(cf.fold, cf.exp_dir))
     net = model.net(cf, logger).cuda()
+
     test_predictor = Predictor(cf, net, logger, mode='test')
     test_evaluator = Evaluator(cf, logger, mode='test')
+
     batch_gen = data_loader.get_test_generator(cf, logger)
+
     test_results_list,test_results_list_mask,test_results_list_seg ,test_results_list_fusion,testing_epoch= test_predictor.predict_test_set(batch_gen,cf, return_results=True)
+
     count = test_evaluator.evaluate_predictions(test_results_list,testing_epoch,cf,pth = cf.test_dir,flag = 'test')
     print('tp_patient {}, tp_roi {}, fp_roi {}'.format(count[0],count[1],count[2]))
     save_test_image(test_results_list,test_results_list_mask,test_results_list_seg,test_results_list_fusion,testing_epoch,cf,cf.plot_dir)
@@ -230,7 +237,7 @@ if __name__ == '__main__':
                         help='one out of: train / test / train_test / analysis / create_exp')
     parser.add_argument('-f','--folds', nargs='+', type=int, default=[1],
                         help='None runs over all folds in CV. otherwise specify list of folds.')
-    parser.add_argument('--exp_dir', type=str, default='/data/yuezhou/mrcnn/0707_mrcnn-seg-fusion/',
+    parser.add_argument('--exp_dir', type=str, default='/data/yuezhou/mrcnn/debug/',
                         help='path to experiment dir. will be created if non existent.')
     parser.add_argument('--resume_to_checkpoint', type=str, default=None,
                         help='if resuming to checkpoint, the desired fold still needs to be parsed via --folds.')
@@ -241,9 +248,9 @@ if __name__ == '__main__':
     folds = args.folds
     resume_to_checkpoint = args.resume_to_checkpoint
 
-    if args.mode == 'train' or args.mode == 'train_test':
+    if args.mode == 'train':  
 
-        cf = utils.prep_exp(args.exp_dir)#False,False
+        cf = utils.prep_exp(args.exp_dir, is_training=True)
 
         cf.resume_to_checkpoint = resume_to_checkpoint#default:None
 
@@ -256,8 +263,9 @@ if __name__ == '__main__':
             if not os.path.exists(cf.fold_dir):
                 os.mkdir(cf.fold_dir)
             logger = utils.get_logger(cf.fold_dir)#loginfo for this fold
+
             train(logger)
-            print('*'*10+'finish train all epoches')
+
             cf.resume_to_checkpoint = None
             if args.mode == 'train_test':
                 test(logger)
