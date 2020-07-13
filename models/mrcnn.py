@@ -194,14 +194,21 @@ class Fusion(nn.Module):
             in_ch = 2
         if 'cat' in self.cf.fusion_method:
             in_ch = 4
-        self.conv1 = conv(in_ch,16,ks=3,stride=1,pad=1,norm=cf.norm,relu=cf.relu)
-        self.conv2 = conv(16, 16, ks=3, stride=1,pad=1, norm=cf.norm,relu=cf.relu)
-        self.conv3 = conv(16,2,ks=3,stride=1,pad=1,norm=cf.norm,relu=cf.relu)
-        self.convout = conv(2,2,ks=1,stride=1,relu=None)
+        if self.cf.fusion_conv_num == 'more':
+            self.conv1 = conv(in_ch,16,ks=3,stride=1,pad=1,norm=cf.norm,relu=cf.relu)
+            self.conv2 = conv(16, 16, ks=3, stride=1,pad=1, norm=cf.norm,relu=cf.relu)
+            self.conv3 = conv(16,2,ks=3,stride=1,pad=1,norm=cf.norm,relu=cf.relu)
+            self.convout = conv(2,2,ks=1,stride=1,relu=None)
+        if self.cf.fusion_conv_num == 'less': 
+            self.conv1 = conv(in_ch,16,ks=3,stride=1,pad=1,norm=cf.norm,relu=cf.relu)
+            self.convout = conv(16,2,ks=1,stride=1,relu=None)
 
     def forward(self,x):
-        x = self.conv3(self.conv2(self.conv1(x)))
-        x = self.convout(x)
+        if self.cf.fusion_conv_num == 'more':
+            x = self.conv3(self.conv2(self.conv1(x)))
+            x = self.convout(x)
+        if self.cf.fusion_conv_num == 'less':
+            x = self.convout(self.conv1(x))
         x = F.softmax(x, dim = 1)
         return x
 
@@ -227,6 +234,7 @@ class Mask(nn.Module):
 
         self.relu = nn.ReLU(inplace=True) if cf.relu == 'relu' else nn.LeakyReLU(inplace=True)
         self.conv5 = conv(mask_channel, cf.head_classes, ks=1, stride=1, relu=None)
+        self.welayer = conv(cf.head_classes, cf.head_classes, ks=1, stride=1, relu=None)
 
     def forward(self, x, rois):
         """
@@ -253,13 +261,15 @@ class Mask(nn.Module):
         #print('deconv',x.shape)
         x = self.conv5(x)
         #print('conv5 x',x.shape)
+        mask_weight = self.welayer(x)
+        print('mask_weight',mask_weight.shape)
         #x = self.sigmoid(x)
         if self.cf.fusion_feature_method == 'after':
             x = F.softmax(x, dim=1)
         else:
             x = x
         #print('in mask',x.shape)
-        return x
+        return x,mask_weight
 
 ############################################################
 #  Loss Functions
@@ -825,7 +835,7 @@ def refine_detections(rois, probs, deltas, batch_ixs, cf):
     return result
 
 
-def get_results(cf, img_shape, detections, detection_masks, seg_logits, box_results_list=None, return_masks=True):
+def get_results(cf, img_shape, detections, detection_masks, seg_logits, mask_weight,box_results_list=None, return_masks=True):
     """
     Restores batch dimension of merged detections, unmolds detections, creates and fills results dict.
     :param img_shape:
@@ -845,17 +855,20 @@ def get_results(cf, img_shape, detections, detection_masks, seg_logits, box_resu
         detection_masks = detection_masks.permute(0, 2, 3, 1).cpu().data.numpy()
     else:
         detection_masks = detection_masks.permute(0, 2, 3, 4, 1).cpu().data.numpy()
+        mask_weight = mask_weight.permute(0, 2, 3, 4, 1).cpu().data.numpy()
 
     # restore batch dimension of merged detections using the batch_ix info.
     batch_ixs = detections[:, cf.dim*2]
     detections = [detections[batch_ixs == ix] for ix in range(img_shape[0])]
     mrcnn_mask = [detection_masks[batch_ixs == ix] for ix in range(img_shape[0])]
+    mrcnn_mask_weight = [mask_weight[batch_ixs == ix] for ix in range(img_shape[0])]
 
     # for test_forward, where no previous list exists.
     if box_results_list is None:
         box_results_list = [[] for _ in range(img_shape[0])]
 
     seg_preds = []
+    mask_weight_map = []
     # loop over batch and unmold detections.
     for ix in range(img_shape[0]):# 0 to batchsize 
         if 0 not in detections[ix].shape:#has detected boxes
@@ -863,6 +876,7 @@ def get_results(cf, img_shape, detections, detection_masks, seg_logits, box_resu
             class_ids = detections[ix][:, 2 * cf.dim + 1].astype(np.int32)#gt class
             scores = detections[ix][:, 2 * cf.dim + 2]#scores
             masks = mrcnn_mask[ix]#[np.arange(boxes.shape[0]), ..., class_ids]#extract forground
+            masks_weight = mrcnn_mask_weight[ix]
 
             # Filter out detections with zero area. Often only happens in early
             # stages of training when the network weights are still a bit random.
@@ -874,20 +888,29 @@ def get_results(cf, img_shape, detections, detection_masks, seg_logits, box_resu
                 class_ids = np.delete(class_ids, exclude_ix, axis=0)
                 scores = np.delete(scores, exclude_ix, axis=0)
                 masks = np.delete(masks, exclude_ix, axis=0)
+                masks_weight = np.delete(masks_weight, exclude_ix, axis=0)
 
             # Resize masks to original image size and set boundary threshold.
             full_masks = []
+            full_masks_weight = []
             permuted_image_shape = list(img_shape[2:]) + [img_shape[1]]
             if return_masks:#Ture for validation
                 for i in range(masks.shape[0]):
                     # Convert neural network mask to full size mask.28,28,14 to 64,128,128
+                    #print('mask',masks[i].shape)
                     full_masks.append(mutils.unmold_mask_2D(masks[i], boxes[i], permuted_image_shape)
                     if cf.dim == 2 else mutils.unmold_mask_3D(masks[i], boxes[i], permuted_image_shape))
+                for i in range(masks_weight.shape[0]):
+                    # Convert neural network mask to full size mask.28,28,14 to 64,128,128
+                    #print('mask',masks[i].shape)
+                    full_masks_weight.append(mutils.unmold_mask_2D(masks_weight[i], boxes[i], permuted_image_shape)
+                    if cf.dim == 2 else mutils.unmold_mask_3D(masks_weight[i], boxes[i], permuted_image_shape))
             # if masks are returned, take max over binary full masks of all predictions in this image.
             # right now only binary masks for plotting/monitoring. for instance segmentation return all proposal maks.
             #final_masks = np.max(np.array(full_masks), 0) if len(full_masks) > 0 else np.zeros(
             #    (*permuted_image_shape[:-1],))
             final_masks = np.max(np.array(full_masks), 0) if len(full_masks) > 0 else np.zeros((64,128,128,2))
+            final_masks_weight = np.max(np.array(full_masks_weight), 0) if len(full_masks_weight) > 0 else np.zeros((64,128,128,2))
 
             # add final perdictions to results.
             if 0 not in boxes.shape:
@@ -897,13 +920,18 @@ def get_results(cf, img_shape, detections, detection_masks, seg_logits, box_resu
         else:
             # pad with zero dummy masks.
             final_masks = np.zeros((64,128,128,2))
+            final_masks_weight = np.zeros((64,128,128,2))
 
         seg_preds.append(final_masks)
+        mask_weight_map.append(final_masks_weight)
     # create and fill results dictionary.
     seg_preds= np.transpose(np.array(seg_preds),(0,4,1,2,3))#.astype('uint8')
+    mask_weight_map = np.transpose(np.array(mask_weight_map),(0,4,1,2,3))
+    print('mask_weight_map',mask_weight_map.shape)
     results_dict = {'boxes': box_results_list,
                     'seg_preds': seg_preds,# mask map
-                    'seg_logits':seg_logits}# vnet
+                    'seg_logits':seg_logits,
+                    'mask_weight':mask_weight_map}# vnet
 
     return results_dict
 
@@ -987,10 +1015,11 @@ class net(nn.Module):
 
         #forward passes. 1. general forward pass, where no activations are saved in second stage (for performance
         # monitoring and loss sampling). 2. second stage forward pass of sampled rois with stored activations for backprop.
-        rpn_class_logits, rpn_pred_deltas, proposal_boxes, detections, detection_masks, seg_logits = self.forward(img)
+        rpn_class_logits, rpn_pred_deltas, proposal_boxes, detections, detection_masks, seg_logits,mask_weight = self.forward(img)
         # detection and detection masks just used for getresult
         mrcnn_class_logits, mrcnn_pred_deltas, mrcnn_pred_mask, target_class_ids, mrcnn_target_deltas, target_mask,  \
         sample_proposals = self.loss_samples_forward(gt_class_ids, gt_boxes, gt_masks)
+        #print('mrcnn_pred_mask',mrcnn_pred_mask.shape)
 
         # loop over batch for loss
         for b in range(img.shape[0]):
@@ -1037,24 +1066,33 @@ class net(nn.Module):
 
         # run unmolding of predictions for monitoring and merge all results to one dictionary.
         return_masks = self.cf.return_masks_in_val if is_validation else self.cf.return_masks_in_train#False for training True for validation
-        results_dict = get_results(self.cf, img.shape, detections, detection_masks,seg_logits,
-                                   box_results_list, return_masks=return_masks)#return box and segmap
+        #print('detection_masks',detection_masks.shape)
+        results_dict = get_results(self.cf, img.shape, detections, detection_masks,seg_logits,self.mask_weight,
+                                   box_results_list,return_masks=return_masks)#return box and segmap
 
         # segmentation result fusion
         mask_map = torch.tensor(results_dict['seg_preds']).float().cuda()# segmentation in roi 64,128,128
+        mask_weight = torch.tensor( results_dict['mask_weight']).float().cuda()
         seg_map = seg_logits
         if 'cat-only' in self.cf.fusion_method:
-            weighted_map = torch.cat((seg_map,mask_map),dim=1)# 
+            self.we_layer = torch.ones((seg_map.shape[0],4,64,128,128)).cuda()
+            weighted_map =torch.cat((self.we_layer[:,0:2,:,:,:] * seg_map, self.we_layer[:,2:4,:,:,:] * mask_map), dim=1)
         if 'add-only' in self.cf.fusion_method:
-            weighted_map = seg_map+mask_map
+            self.we_layer = torch.ones((seg_map.shape[0],4,64,128,128)).cuda()
+            weighted_map = self.we_layer[:,0:2,:,:,:] * seg_map + self.we_layer[:,2:4,:,:,:] * mask_map
         if 'weight-cat' in self.cf.fusion_method:
-            weighted_map =torch.cat((self.weight_map_seg * seg_map, self.weight_map_mask * mask_map), dim=1)
+            weighted_map =torch.cat((self.we_layer[:,0:2,:,:,:] * seg_map, self.we_layer[:,2:4,:,:,:] * mask_map), dim=1)
         if 'weight-add' in self.cf.fusion_method:
-            weighted_map = self.weight_map_seg * seg_map + self.weight_map_mask * mask_map
+            weighted_map = self.we_layer[:,0:2,:,:,:] * seg_map + self.we_layer[:,2:4,:,:,:] * mask_map
+            #weighted_map = self.we_layer * seg_map + mask_weight * mask_map
 
-        fused_seg_map = self.fusion(weighted_map)#more conv
+        #fused_seg_map = weighted_map#F.softmax(weighted_map,dim=1)#self.fusion(weighted_map)#more conv
+        #fused_seg_map[fused_seg_map>1] = 1.
+        fused_seg_map = F.softmax(weighted_map,dim=1)
         results_dict['fusion_map'] = fused_seg_map
         results_dict['seg_preds'] = mask_map
+        #results_dict['we_layer'] = torch.cat((self.we_layer,mask_weight),dim = 1)#self.we_layer
+        results_dict['we_layer'] = self.we_layer
 
         # compute mask loss
         if self.cf.mask_loss_flag == 'roiDice':
@@ -1078,7 +1116,7 @@ class net(nn.Module):
         mrcnn_loss = frcnn_loss+mrcnn_mask_loss
         seg_loss = vnet_seg_loss
         if 'mrcnn-seg-fusion' in self.cf.loss_flag:
-            loss = mrcnn_loss+seg_loss+fusion_dice_loss
+            loss = 1.0 * frcnn_loss + (1.0 * mrcnn_mask_loss + 1.0 * seg_loss+ 1.0 * fusion_dice_loss)
         if 'mrcnn-seg' in self.cf.loss_flag and 'mrcnn-seg-fusion' not in self.cf.loss_flag:
             loss = mrcnn_loss+seg_loss
         if 'seg-only' in self.cf.loss_flag:
@@ -1089,7 +1127,6 @@ class net(nn.Module):
             loss = mrcnn_loss
         if 'frcnn-seg' in self.cf.loss_flag:
             loss = frcnn_loss+seg_loss
-
         results_dict['torch_loss'] = loss
         results_dict['monitor_values'] = {'loss': loss.item(), 'mrcnn_class_loss': mrcnn_class_loss.item()}
         results_dict['monitor_losses'] = {'mrcnn_class_loss':mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(), 'mrcnn_mask_loss':mrcnn_mask_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item(),'seg_loss_dice':vnet_seg_loss.item(),'fusion_loss_dice':fusion_dice_loss.item()}
@@ -1116,20 +1153,24 @@ class net(nn.Module):
         """
         img = batch['data']
         img = torch.from_numpy(img).float().cuda()
-        _, _, _, detections, detection_masks, seg_logits = self.forward(img)
-        results_dict = get_results(self.cf, img.shape, detections, detection_masks, seg_logits, return_masks=return_masks)
+        _, _, _, detections, detection_masks, seg_logits,mask_weight = self.forward(img)
+        results_dict = get_results(self.cf, img.shape, detections, detection_masks, seg_logits,mask_weight ,return_masks=return_masks)
         mask_map = torch.tensor(results_dict['seg_preds']).float().cuda()
         seg_map = seg_logits
+        mask_weight = torch.tensor( results_dict['mask_weight']).float().cuda()
         if 'cat-only' in self.cf.fusion_method:
             weighted_map = torch.cat((seg_map,mask_map),dim=1)# 
         if 'add-only' in self.cf.fusion_method:
             weighted_map = seg_map+mask_map
         if 'weight-cat' in self.cf.fusion_method:
-            weighted_map =torch.cat((self.weight_map_seg * seg_map, self.weight_map_mask * mask_map),dim=1)
+            weighted_map =torch.cat((self.we_layer[:,0:2,:,:,:] * seg_map, self.we_layer[:,2:4,:,:,:] * mask_map),dim=1)
         if 'weight-add' in self.cf.fusion_method:
-            weighted_map = self.weight_map_seg * seg_map + self.weight_map_mask * mask_map
+            weighted_map = self.we_layer[:,0:2,:,:,:] * seg_map + self.we_layer[:,2:4,:,:,:] * mask_map
+            #weighted_map = self.we_layer * seg_map + mask_weight * mask_map
 
         fused_seg_map = self.fusion(weighted_map)
+        #fused_seg_map = weighted_map#F.softmax(weighted_map,dim=1)#self.fusion(weighted_map)#more conv
+        #fused_seg_map[fused_seg_map>1] = 1.
 
         results_dict['fusion_map'] = fused_seg_map
         results_dict['seg_preds'] = mask_map
@@ -1147,10 +1188,9 @@ class net(nn.Module):
         :return: detection_masks: (n_final_detections, n_classes, y, x, (z)) raw molded masks as returned by mask-head.
         """
         # extract features.
-        feature_outs,weight_map_seg,weight_map_mask = self.featurenet(img)
+        feature_outs,we_layer = self.featurenet(img)
         seg_logits = feature_outs[0]
-        self.weight_map_seg = weight_map_seg
-        self.weight_map_mask = weight_map_mask
+        self.we_layer = we_layer
 
         rpn_feature_maps = [feature_outs[i+1] for i in self.cf.pyramid_levels]
         self.mrcnn_feature_maps = rpn_feature_maps
@@ -1201,9 +1241,10 @@ class net(nn.Module):
         detection_boxes = detections[:, :self.cf.dim * 2 + 1] / scale#with batch_idx
 
         with torch.no_grad():
-            detection_masks = self.mask(self.mrcnn_feature_maps, detection_boxes)
+            detection_masks,mask_weight = self.mask(self.mrcnn_feature_maps, detection_boxes)
+            self.mask_weight = mask_weight
 
-        return [rpn_pred_logits, rpn_pred_deltas, batch_proposal_boxes, detections, detection_masks,seg_logits]
+        return [rpn_pred_logits, rpn_pred_deltas, batch_proposal_boxes, detections, detection_masks,seg_logits,mask_weight]
 
 
     def loss_samples_forward(self, batch_gt_class_ids, batch_gt_boxes, batch_gt_masks):
@@ -1230,7 +1271,8 @@ class net(nn.Module):
         sample_proposals = self.rpn_rois_batch_info[sample_ix]#8,7
         if 0 not in sample_proposals.size():
             sample_logits, sample_boxes = self.classifier(self.mrcnn_feature_maps, sample_proposals)
-            sample_mask = self.mask(self.mrcnn_feature_maps, sample_proposals)
+            sample_mask,_ = self.mask(self.mrcnn_feature_maps, sample_proposals)
+            #self.mask_weight = mask_weight
         else:
             sample_logits = torch.FloatTensor().cuda()
             sample_boxes = torch.FloatTensor().cuda()

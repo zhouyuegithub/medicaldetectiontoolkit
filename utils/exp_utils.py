@@ -27,6 +27,15 @@ import pandas as pd
 import pickle
 
 
+def learning_rate_decreasing(cf,epoch,lr_now,mode='step'):
+    if mode == 'step':
+        if epoch % cf.decrease_lr == 0:
+            lr_next = lr_now * cf.learning_rate_ratio
+        else:
+            lr_next = lr_now
+    return lr_next
+
+    
 
 def get_logger(exp_dir):
     """

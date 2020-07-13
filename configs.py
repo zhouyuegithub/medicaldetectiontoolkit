@@ -24,7 +24,7 @@ class configs(DefaultConfigs):
 
     def __init__(self):
 
-        self.gpu = '0'
+        self.gpu = '4'
         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
 
         #########################
@@ -43,6 +43,7 @@ class configs(DefaultConfigs):
         self.pp_name = 'abus_npy'
         self.input_df_name = 'info_df.pickle'
         self.input_id_name = 'fold_ids.pickle'
+        self.pid_pth = 'fold_ids.txt'
         self.pp_data_path = '/shenlab/lab_stor6/yuezhou/ABUSdata/{}/'.format(self.pp_name)
         self.pp_test_data_path = self.pp_data_path #change if test_data in separate folder.
 
@@ -76,7 +77,7 @@ class configs(DefaultConfigs):
         #########################
 
         self.backbone_path = 'models/backbone_vnet.py'
-        self.multi_scale_det = False 
+        self.multi_scale_det = True 
         self.start_filts = 48 if self.dim == 2 else 18
         if 'vnet' in self.backbone_path:
             if self.multi_scale_det == False:
@@ -95,15 +96,15 @@ class configs(DefaultConfigs):
         #########################
         #  Schedule / Selection #
         #########################
-        self.debug = 1 
+        self.debug = 0 
         if self.debug == 1:
             self.num_epochs = 2 
             self.num_train_batches = 2#2 if self.dim == 2 else 2 
             self.batch_size = 2#20 if self.dim == 2 else 2 
             self.n_workers = 1
         else:
-            self.num_epochs = 200 
-            self.num_train_batches = 200 if self.dim == 2 else 300 
+            self.num_epochs = 250 
+            self.num_train_batches = 200 if self.dim == 2 else 200 
             self.batch_size = 20 if self.dim == 2 else 2 
             self.n_workers = 16
 
@@ -119,20 +120,21 @@ class configs(DefaultConfigs):
         #########################
         # loss  #
         #########################
+        # in ['BCE','roiDice','mapDice']
+        self.mask_loss_flag = 'BCE'
         # in ['seg-only','mrcnn-only','frcnn-only','mrcnn-seg','frcnn-seg','mrcnn-seg-fusion']
         self.loss_flag = 'mrcnn-seg-fusion'
-
-        # in ['BCE','roiDice','mapDice']
-        self.mask_loss_flag = 'roiDice'
-
         #########################
         # fusion method  #
         #########################
+        #fusion in prob or feature
+        self.fusion_prob_feature = 'prob'
         # in ['cat-only','add-only','weight-cat','weight-add']
         self.fusion_method = 'add-only'
-
         # in ['before','after']
         self.fusion_feature_method = 'after'
+        #fusion conoral number
+        self.fusion_conv_num = 'less'#'no' or 'more'
 
         #########################
         #   Testing / Plotting  #
@@ -144,8 +146,9 @@ class configs(DefaultConfigs):
         # set the top-n-epochs to be saved for temporal averaging in testing.
         self.save_n_models = 5 
         self.test_n_epochs = 5
+        self.testing_epoch_num = 0
         # test the best epoch or the last epoch 
-        self.test_last_epoch = True 
+        self.test_last_epoch = False 
         # show image
         if self.debug == 1:
             self.show_train_images = 1 
@@ -241,8 +244,9 @@ class configs(DefaultConfigs):
 
     def add_mrcnn_configs(self):
         # learning rate is a list with one entry per epoch.
-        self.decrease_lr = 120 
-        self.learning_rate = [1e-4] * self.decrease_lr + [1e-5] * (self.num_epochs - self.decrease_lr)
+        self.decrease_lr = 100 
+        self.initial_learning_rate = 1e-4#[1e-4] * self.decrease_lr + [1e-5] * (self.num_epochs - self.decrease_lr)
+        self.learning_rate_ratio = 0.1
 
         # disable the re-sampling of mask proposals to original size for speed-up.
         # since evaluation is detection-driven (box-matching) and not instance segmentation-driven (iou-matching),

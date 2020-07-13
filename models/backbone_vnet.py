@@ -77,13 +77,12 @@ class DownTransition(nn.Module):
 class WeightLayer(nn.Module):
     def __init__(self, inChans, outChans, kernel_size, elu):
         super(WeightLayer,self).__init__()
-        self.we_layer_seg = nn.Conv3d(inChans,outChans,kernel_size=kernel_size,padding=0)
-        self.we_layer_mask = nn.Conv3d(inChans,outChans,kernel_size=kernel_size,padding=0)
+        self.we_layer = nn.Conv3d(inChans,outChans,kernel_size=kernel_size,padding=0)
+        #self.we_layer_mask = nn.Conv3d(inChans,outChans,kernel_size=kernel_size,padding=0)
 
     def forward(self,x):
-        weight_layer_seg = self.we_layer_seg(x)
-        weight_layer_mask = self.we_layer_mask(x)
-        return (weight_layer_seg, weight_layer_mask) 
+        we_layer = self.we_layer(x)
+        return we_layer 
 
 class UpTransition(nn.Module):
     def __init__(self, inChans, outChans, nConvs, elu, dropout=False, dilation = False):
@@ -146,7 +145,7 @@ class VNet(nn.Module):
         self.up_tr128 = UpTransition(256, 128, 2, elu, dropout=True)
         self.up_tr64 = UpTransition(128, 64, 1, elu)
         self.up_tr32 = UpTransition(64, 32, 1, elu)
-        self.we_layer = WeightLayer(32,2,1,elu)
+        self.we_layer = WeightLayer(32,2+2,1,elu)
         self.out_tr = OutputTransition(self.cf, 32, elu)
 
     def forward(self, x):
@@ -161,7 +160,7 @@ class VNet(nn.Module):
         outup128 = self.up_tr128(outup256, out64)
         outup64 = self.up_tr64(outup128, out32)
         outup32 = self.up_tr32(outup64, out16)
-        weight_layer_seg, weight_layer_mask = self.we_layer(outup32)
+        we_layer = self.we_layer(outup32)
         outmap = self.out_tr(outup32)
         output = []
         output.append(outmap)
@@ -172,7 +171,7 @@ class VNet(nn.Module):
         output.append(out256)
         #for o in output:
         #    print('features each level',o.shape)
-        return output, weight_layer_seg, weight_layer_mask 
+        return output, we_layer 
 
 if __name__ == '__main__':
     model = VNet(1,2)

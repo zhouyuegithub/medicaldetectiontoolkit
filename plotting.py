@@ -248,6 +248,8 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
             seg_map = F.softmax(results_dict['seg_logits'], dim=1)[:,1:2,:,:,:].cpu().detach().numpy()
 
         fusion_map = results_dict['fusion_map'][:,1:2,:,:,:].cpu().detach().numpy()
+        we_layer_seg = results_dict['we_layer'][:,1:2,:,:,:].cpu().detach().numpy()
+        we_layer_mask = results_dict['we_layer'][:,3:4,:,:,:].cpu().detach().numpy()
 
     roi_results = deepcopy(results_dict['boxes'])#len == batch size
     # Randomly sampled one patient of batch and project data into 2D slices for plotting.
@@ -278,6 +280,8 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
         mask_map = np.transpose(mask_map[patient_ix], axes=(3, 0, 1, 2))[z_cuts[0]: z_cuts[1]]#pred seg
         seg_map = np.transpose(seg_map[patient_ix], axes=(3, 0, 1, 2))[z_cuts[0]: z_cuts[1]]#pred seg
         fusion_map = np.transpose(fusion_map[patient_ix], axes=(3, 0, 1, 2))[z_cuts[0]: z_cuts[1]]#pred seg
+        we_layer_seg = np.transpose(we_layer_seg[patient_ix],axes=(3,0,1,2))[z_cuts[0]:z_cuts[1]]
+        we_layer_mask = np.transpose(we_layer_mask[patient_ix],axes=(3,0,1,2))[z_cuts[0]:z_cuts[1]]
         pids = [pids[patient_ix]] * data.shape[0]
 
     try:
@@ -288,7 +292,7 @@ def plot_batch_prediction(batch, results_dict, cf, mode,outfile= None):
         raise Warning('Shapes of arrays to plot not in agreement!'
                       'Shapes {} vs. {} vs {}'.format(data.shape, segs.shape, mask_map.shape))
 
-    show_arrays = np.concatenate([data[:,0][:,None], segs, mask_map, seg_map, fusion_map], axis=1).astype(float)
+    show_arrays = np.concatenate([data[:,0][:,None], segs, mask_map, seg_map, fusion_map,we_layer_mask,we_layer_seg], axis=1).astype(float)
     approx_figshape = (4 * show_arrays.shape[0], 4 * show_arrays.shape[1])
     fig = plt.figure(figsize=approx_figshape)
     gs = gridspec.GridSpec(show_arrays.shape[1] + 1, show_arrays.shape[0])

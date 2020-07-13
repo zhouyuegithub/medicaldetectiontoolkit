@@ -6,7 +6,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 
-colorlist = ['red','navy','orange','blue','green','pink','black']
+colorlist = ['red','navy','orange','green','blue','pink','black']
 fig_width = 3.487#3.487/1.618
 fig_height = 3.487#/1.618
 params = {
@@ -156,10 +156,10 @@ def saveFROC(xlabel,ylabel,auc,maxfp,name,th,lastmodel):
     plt.tight_layout()
     if lastmodel == True:
         #name = '/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/froc/lastmodel/{}_roc_{}.pdf'.format('lastmodel',th)
-        name = '/data/yuezhou/mrcnn-fusion-seg/0709_mfs_add_as_roiDice/plots/{}_roc_{}.pdf'.format('lastmodel',th)
+        #name = '/data/yuezhou/mrcnn-fusion-seg/0709_mfs_add_as_roiDice/plots/{}_roc_{}.pdf'.format('lastmodel',th)
+        name = '/data/yuezhou/models/baseline/compare/lastepoch_roc_{}_new.pdf'.format(th)
     else:
-        #name = '/shenlab/lab_stor6/yuezhou/ABUSdata/mrcnn/froc/bestmodel/roc_{}.pdf'.format(th)
-        name = '/data/yuezhou/models/baseline/roc_{}.pdf'.format(th)
+        name = '/data/yuezhou/temp_det_result/roc_{}.pdf'.format(th)
     plt.savefig(name)
 
 
@@ -167,21 +167,21 @@ if __name__ == '__main__':
     th = 0.7
     iou_th = 0.3
     lastmodel = False 
-    result_pths = '/data/yuezhou/models/baseline/'
+    result_pths = '/data/yuezhou/temp_det_result/'
     models = os.listdir(result_pths)
     pths,mm =[], []
     maxfp = []
     for m in models:
+        #if 'rcnn' in m:
         print(m)
-        if 'bs' not in m:
-            mm.append(m)
-            pth_ = result_pths+m+'/test/'
-            f = os.listdir(pth_)
-            for ff in f:
-                if lastmodel == True and 'last' in ff:
-                    pths.append(pth_+ff)
-                if lastmodel == False and 'last' not in ff and 'test' in ff:
-                    pths.append(pth_+ff)
+        mm.append(m)
+        pth_ = result_pths+m+'/test/'
+        f = os.listdir(pth_)
+        for ff in f:
+            if lastmodel == True and 'last' in ff and 'dice' not in ff:
+                pths.append(pth_+ff)
+            if lastmodel == False and 'last' not in ff and 'test' in ff:
+                pths.append(pth_+ff)
     #pths = []
     #pth = '/data/yuezhou/mrcnn-fusion-seg/0709_mfs_add_as_roiDice/test/test_epoch_35.csv'
     #pths.append(pth)
@@ -189,7 +189,7 @@ if __name__ == '__main__':
     xlabel,ylabel,name,auclist =[], [],[],[]
     for ii, result_pth in enumerate(pths):
         print('*'*50)
-        #print('processing model',mm[ii])
+        print('processing model',mm[ii])
         predscore, predbox, gtbox, gtlabel,patient_list,iou_list = readcsv(result_pth)
         predbox_list = preocess_box(predbox,patient_list)
         gtbox_list = preocess_box(gtbox,patient_list)

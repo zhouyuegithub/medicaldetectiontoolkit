@@ -41,6 +41,22 @@ from batchgenerators.transforms.crop_and_pad_transforms import CenterCropTransfo
 from batchgenerators.transforms.utility_transforms import ConvertSegToBoundingBoxCoordinates
 
 
+def read_pid(cf,fold):
+    pid_pth = cf.pp_data_path + '/' + cf.pid_pth
+    f = open(pid_pth,'r')
+    lines = f.readlines()
+    train_pids,val_pids,test_pids = [], [], []
+    for l in lines:
+        if 'train' in l:
+            train_pids.append(l[6:-1])
+        if 'val' in l:
+            val_pids.append(l[4:-1])
+        if 'test' in l:
+            test_pids.append(l[5:-1])
+    #print('train_pid',train_pids)
+    #print('val_pid',val_pids)
+    #print('test_pid',test_pids)
+    return train_pids, val_pids, test_pids
 
 def get_train_generators(cf, logger):
     """
@@ -60,23 +76,32 @@ def get_train_generators(cf, logger):
 
     train_pids = [all_pids_list[ix] for ix in train_ix]
     val_pids = [all_pids_list[ix] for ix in val_ix]
+    print('train_pid',train_pids)
+    print('val_pids',val_pids)
+
+    #train_pids, val_pids,_ = read_pid(cf,cf.fold)
+    #print('train_pid',train_pids)
+    #print('val_pids',val_pids)
 
     train_data = {k: v for (k, v) in all_data.items() if any(p == v['pid'] for p in train_pids)}
     val_data = {k: v for (k, v) in all_data.items() if any(p == v['pid'] for p in val_pids)}
     logger.info("data set loaded with: {} train / {} val / {} test patients".format(len(train_ix), len(val_ix), len(test_ix)))
+    #logger.info("data set loaded with: {} train / {} val / {} test patients".format(len(train_pids), len(val_pids), len(_)))
     batch_gen = {}
     batch_gen['train'] = create_data_gen_pipeline(train_data, cf=cf, is_training=True)#return croped transormed rois
     batch_gen['n_train'] = len(train_ix)
+    #batch_gen['n_train'] = len(train_pids)
     batch_gen['val_sampling'] = create_data_gen_pipeline(val_data, cf=cf, is_training=False)# center croped
     if cf.val_mode == 'val_patient':#val_sampling
         batch_gen['val_patient'] = PatientBatchIterator(val_data, cf=cf)
-        #batch_gen['n_val'] = len(val_ix) if cf.max_val_patients is None else min(len(val_ix), cf.max_val_patients)
         batch_gen['n_val'] = len(val_ix) if cf.num_val_batches is None else min(len(val_ix), cf.num_val_batches)
+        #batch_gen['n_val'] = len(val_pids) if cf.num_val_batches is None else min(len(val_pids), cf.num_val_batches)
     else:
         if cf.debug == 1:
             batch_gen['n_val'] = 2#len(val_ix)#cf.num_val_batches#50
         else:
             batch_gen['n_val'] = len(val_ix)#cf.num_val_batches#50
+            #batch_gen['n_val'] = len(val_pids)#cf.num_val_batches#50
     return batch_gen
 
 
@@ -91,8 +116,15 @@ def get_test_generator(cf, logger):
         fold_list = pickle.load(handle)
     _, _, test_ix, _ = fold_list[cf.fold]
 
+    #all_data = load_dataset(cf, logger)#return data path class slicelocation('data','seg','pid','class_target','fg_slices')
+    #_, _, test_pids = read_pid(cf,cf.fold)
+    #print('test_pids',test_pids)
+
+    #test_data = {k: v for (k, v) in all_data.items() if any(p == v['pid'] for p in test_pids)}
+
     test_data = load_dataset(cf, logger, test_ix, pp_data_path=cf.pp_test_data_path, pp_name=pp_name)
     logger.info("data set loaded with: {} test patients".format(len(test_ix)))
+    #logger.info("data set loaded with: {} test patients".format(len(test_pids)))
     batch_gen = {}
     batch_gen['test'] = PatientBatchIterator(test_data, cf=cf)
     if cf.debug == 1:
@@ -100,6 +132,8 @@ def get_test_generator(cf, logger):
     else:
         batch_gen['n_test'] =  len(test_ix) if cf.max_test_patients=="all" else \
             min(cf.max_test_patients, len(test_ix))
+        #batch_gen['n_test'] =  len(test_pids) if cf.max_test_patients=="all" else \
+        #    min(cf.max_test_patients, len(test_pids))
     return batch_gen
 
 
