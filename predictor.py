@@ -152,6 +152,9 @@ class Predictor:
                 for _ in range(batch_gen['n_test']):
                     batch = next(batch_gen['test'])
                     print('testing pid',batch['pid'])
+                    print('dict_seg',batch['seg'].shape)
+                    print('dict_class',batch['class_target'].shape)
+                    print('dict_class',batch['class_target'])
                     for i in batch['patient_roi_labels']:
                         if i[0] > 0:
                             batch['patient_roi_labels'][0] = [1]

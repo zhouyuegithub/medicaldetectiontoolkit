@@ -166,19 +166,29 @@ class Change_Vnet_Channel(nn.Module):
         self.conv_level2 = conv(128,self.out_ch,ks=3,stride=1,pad=1,norm=cf.norm,relu=cf.relu)
         self.conv_level3 = conv(256,self.out_ch,ks=3,stride=1,pad=1,norm=cf.norm,relu=cf.relu)
         self.conv_level4 = conv(256,self.out_ch,ks=3,stride=1,pad=1,norm=cf.norm,relu=cf.relu)
+        self.conv_level = []
+        self.conv_level.append(self.conv_level0)
+        self.conv_level.append(self.conv_level1)
+        self.conv_level.append(self.conv_level2)
+        self.conv_level.append(self.conv_level3)
+        self.conv_level.append(self.conv_level4)
 
     def forward(self,x):
-        x_level0 = self.conv_level0(x[0])
-        x_level1 = self.conv_level1(x[1])
-        x_level2 = self.conv_level2(x[2])
-        x_level3 = self.conv_level3(x[3])
-        x_level4 = self.conv_level4(x[4])
         output = []
-        output.append(x_level0)
-        output.append(x_level1)
-        output.append(x_level2)
-        output.append(x_level3)
-        output.append(x_level4)
+        for ii,i in enumerate(self.cf.pyramid_levels):
+            x_out = self.conv_level[i](x[ii])
+            output.append(x_out)
+
+        #x_level0 = self.conv_level0(x[0])
+        #x_level1 = self.conv_level1(x[1])
+        #x_level2 = self.conv_level2(x[2])
+        #x_level3 = self.conv_level3(x[3])
+        #x_level4 = self.conv_level4(x[4])
+        #output.append(x_level0)
+        #output.append(x_level1)
+        #output.append(x_level2)
+        #output.append(x_level3)
+        #output.append(x_level4)
 
         return output
 
@@ -202,6 +212,8 @@ class Fusion(nn.Module):
         if self.cf.fusion_conv_num == 'less': 
             self.conv1 = conv(in_ch,16,ks=3,stride=1,pad=1,norm=cf.norm,relu=cf.relu)
             self.convout = conv(16,2,ks=1,stride=1,relu=None)
+        if self.cf.fusion_conv_num == 'one': 
+            self.convout = conv(in_ch,2,ks=1,stride=1,relu=None)
 
     def forward(self,x):
         if self.cf.fusion_conv_num == 'more':
@@ -209,6 +221,8 @@ class Fusion(nn.Module):
             x = self.convout(x)
         if self.cf.fusion_conv_num == 'less':
             x = self.convout(self.conv1(x))
+        if self.cf.fusion_conv_num == 'one':
+            x = self.convout(x)
         x = F.softmax(x, dim = 1)
         return x
 
@@ -1019,7 +1033,6 @@ class net(nn.Module):
         # detection and detection masks just used for getresult
         mrcnn_class_logits, mrcnn_pred_deltas, mrcnn_pred_mask, target_class_ids, mrcnn_target_deltas, target_mask,  \
         sample_proposals = self.loss_samples_forward(gt_class_ids, gt_boxes, gt_masks)
-        #print('mrcnn_pred_mask',mrcnn_pred_mask.shape)
 
         # loop over batch for loss
         for b in range(img.shape[0]):
@@ -1066,7 +1079,6 @@ class net(nn.Module):
 
         # run unmolding of predictions for monitoring and merge all results to one dictionary.
         return_masks = self.cf.return_masks_in_val if is_validation else self.cf.return_masks_in_train#False for training True for validation
-        #print('detection_masks',detection_masks.shape)
         results_dict = get_results(self.cf, img.shape, detections, detection_masks,seg_logits,self.mask_weight,
                                    box_results_list,return_masks=return_masks)#return box and segmap
 
@@ -1083,15 +1095,11 @@ class net(nn.Module):
         if 'weight-cat' in self.cf.fusion_method:
             weighted_map =torch.cat((self.we_layer[:,0:2,:,:,:] * seg_map, self.we_layer[:,2:4,:,:,:] * mask_map), dim=1)
         if 'weight-add' in self.cf.fusion_method:
-            weighted_map = self.we_layer[:,0:2,:,:,:] * seg_map + self.we_layer[:,2:4,:,:,:] * mask_map
-            #weighted_map = self.we_layer * seg_map + mask_weight * mask_map
-
-        #fused_seg_map = weighted_map#F.softmax(weighted_map,dim=1)#self.fusion(weighted_map)#more conv
-        #fused_seg_map[fused_seg_map>1] = 1.
+            weighted_map = self.we_layer[:,0:2,:,:,:] * seg_map + self.we_layer[:,2:4,:,:,:] * mask_map 
+        #fused_seg_map = self.fusion(weighted_map)
         fused_seg_map = F.softmax(weighted_map,dim=1)
         results_dict['fusion_map'] = fused_seg_map
         results_dict['seg_preds'] = mask_map
-        #results_dict['we_layer'] = torch.cat((self.we_layer,mask_weight),dim = 1)#self.we_layer
         results_dict['we_layer'] = self.we_layer
 
         # compute mask loss
@@ -1115,28 +1123,22 @@ class net(nn.Module):
         frcnn_loss = mrcnn_class_loss+mrcnn_bbox_loss+batch_rpn_class_loss+batch_rpn_bbox_loss
         mrcnn_loss = frcnn_loss+mrcnn_mask_loss
         seg_loss = vnet_seg_loss
-        if 'mrcnn-seg-fusion' in self.cf.loss_flag:
-            loss = 1.0 * frcnn_loss + (1.0 * mrcnn_mask_loss + 1.0 * seg_loss+ 1.0 * fusion_dice_loss)
-        if 'mrcnn-seg' in self.cf.loss_flag and 'mrcnn-seg-fusion' not in self.cf.loss_flag:
-            loss = mrcnn_loss+seg_loss
-        if 'seg-only' in self.cf.loss_flag:
-            loss = seg_loss 
-        if 'frcnn-only' in self.cf.loss_flag:
-            loss = frcnn_loss 
-        if 'mrcnn-only' in self.cf.loss_flag:
-            loss = mrcnn_loss
-        if 'frcnn-seg' in self.cf.loss_flag:
-            loss = frcnn_loss+seg_loss
+        loss = 1.0 * frcnn_loss + (1.0 * mrcnn_mask_loss + 1.0 * seg_loss+ 1.0 * fusion_dice_loss)
+        #if 'mrcnn-seg-fusion' in self.cf.loss_flag:
+        #    loss = 1.0 * frcnn_loss + (1.0 * mrcnn_mask_loss + 1.0 * seg_loss+ 1.0 * fusion_dice_loss)
+        #if 'mrcnn-seg' in self.cf.loss_flag and 'mrcnn-seg-fusion' not in self.cf.loss_flag:
+        #    loss = mrcnn_loss+seg_loss
+        #if 'seg-only' in self.cf.loss_flag:
+        #    loss = seg_loss 
+        #if 'frcnn-only' in self.cf.loss_flag:
+        #    loss = frcnn_loss 
+        #if 'mrcnn-only' in self.cf.loss_flag:
+        #    loss = mrcnn_loss
+        #if 'frcnn-seg' in self.cf.loss_flag:
+        #    loss = frcnn_loss+seg_loss
         results_dict['torch_loss'] = loss
-        results_dict['monitor_values'] = {'loss': loss.item(), 'mrcnn_class_loss': mrcnn_class_loss.item()}
-        results_dict['monitor_losses'] = {'mrcnn_class_loss':mrcnn_class_loss.item(), 'mrcnn_bbox_loss':mrcnn_bbox_loss.item(), 'mrcnn_mask_loss':mrcnn_mask_loss.item(),'rpn_class_loss':batch_rpn_class_loss.item(),'rpn_bbox_loss':batch_rpn_bbox_loss.item(),'seg_loss_dice':vnet_seg_loss.item(),'fusion_loss_dice':fusion_dice_loss.item()}
-
-        results_dict['logger_string'] =  \
-            "loss: {0:.2f}, rpn_class: {1:.2f}, rpn_bbox: {2:.2f}, mrcnn_class: {3:.2f}, mrcnn_bbox: {4:.2f}, " \
-            "mrcnn_mask: {5:.2f},seg_dice_loss:{6:.2f}, fusion_loss:{7:.2f},dcount {8}".format(loss.item(), batch_rpn_class_loss.item(),
-                                                     batch_rpn_bbox_loss.item(), mrcnn_class_loss.item(),
-                                                     mrcnn_bbox_loss.item(), mrcnn_mask_loss.item(), vnet_seg_loss.item(),fusion_dice_loss.item(),dcount)
-
+        results_dict['monitor_values'] = {'loss': loss.item()}#, 'mrcnn_class_loss': mrcnn_class_loss.item()}
+        results_dict['monitor_losses'] = {'loss': loss.item()}#, 'mrcnn_class_loss': mrcnn_class_loss.item()}
         return results_dict
 
 
@@ -1165,12 +1167,9 @@ class net(nn.Module):
         if 'weight-cat' in self.cf.fusion_method:
             weighted_map =torch.cat((self.we_layer[:,0:2,:,:,:] * seg_map, self.we_layer[:,2:4,:,:,:] * mask_map),dim=1)
         if 'weight-add' in self.cf.fusion_method:
-            weighted_map = self.we_layer[:,0:2,:,:,:] * seg_map + self.we_layer[:,2:4,:,:,:] * mask_map
-            #weighted_map = self.we_layer * seg_map + mask_weight * mask_map
+            weighted_map = self.we_layer[:,0:2,:,:,:] * seg_map + self.we_layer[:,2:4,:,:,:] * mask_map 
 
-        fused_seg_map = self.fusion(weighted_map)
-        #fused_seg_map = weighted_map#F.softmax(weighted_map,dim=1)#self.fusion(weighted_map)#more conv
-        #fused_seg_map[fused_seg_map>1] = 1.
+        fused_seg_map = F.softmax(weighted_map,dim=1)
 
         results_dict['fusion_map'] = fused_seg_map
         results_dict['seg_preds'] = mask_map
@@ -1197,6 +1196,8 @@ class net(nn.Module):
         if self.cf.multi_scale_det == True:
             self.mrcnn_feature_maps = self.ChangeVnetChannel(rpn_feature_maps)
         # loop through pyramid layers and apply RPN.
+        for ff in self.mrcnn_feature_maps:
+            print('ff',ff.shape)
         layer_outputs = []  # list of lists
         for ii,p in enumerate(self.mrcnn_feature_maps):
             level = self.cf.pyramid_levels[ii]

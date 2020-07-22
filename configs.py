@@ -77,7 +77,7 @@ class configs(DefaultConfigs):
         #########################
 
         self.backbone_path = 'models/backbone_vnet.py'
-        self.multi_scale_det = True 
+        self.multi_scale_det = False 
         self.start_filts = 48 if self.dim == 2 else 18
         if 'vnet' in self.backbone_path:
             if self.multi_scale_det == False:
@@ -116,7 +116,8 @@ class configs(DefaultConfigs):
             self.num_val_batches = 2
         else:
             self.num_val_batches = None 
-
+        self.new_data = True 
+        self.text_for_next = False
         #########################
         # loss  #
         #########################
@@ -130,11 +131,11 @@ class configs(DefaultConfigs):
         #fusion in prob or feature
         self.fusion_prob_feature = 'prob'
         # in ['cat-only','add-only','weight-cat','weight-add']
-        self.fusion_method = 'add-only'
+        self.fusion_method = 'weight-add'
         # in ['before','after']
         self.fusion_feature_method = 'after'
         #fusion conoral number
-        self.fusion_conv_num = 'less'#'no' or 'more'
+        self.fusion_conv_num = 'no'#'no' or 'more' or 'less' or 'one'
 
         #########################
         #   Testing / Plotting  #
@@ -279,7 +280,8 @@ class configs(DefaultConfigs):
         if self.multi_scale_det == False:
             self.pyramid_levels = [4]
         else:
-            self.pyramid_levels = [0,1,2,3,4]
+            #self.pyramid_levels = [0,1,2,3,4]
+            self.pyramid_levels = [2,3,4]
 
         # number of feature maps in rpn. typically lowered in 3D to save gpu-memory.
         self.n_rpn_features = 512 if self.dim == 2 else 128

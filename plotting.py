@@ -73,10 +73,11 @@ def save_test_image(results_list,results_list_mask,results_list_seg,results_list
     if not os.path.exists(pth):
         os.mkdir(pth)
     mask_dice,seg_dice,fusion_dice,pidlist =[], [],[],[]
-    for ii,box_pid in enumerate(results_list):
+    for ii,box_pid in enumerate(results_list_seg):
         pid = box_pid[1]
         pidlist.append(pid)
-        boxes = box_pid[0][0]
+        #boxes = box_pid[0][0]
+        boxes = results_list[ii][0][0]#box_pid[0][0]
 
         img = np.load(cf.pp_test_data_path + pid + '_img.npy')
         img = np.transpose(img,axes = (1,2,0))[np.newaxis]
@@ -90,6 +91,9 @@ def save_test_image(results_list,results_list_mask,results_list_seg,results_list
         mask_map = np.squeeze(results_list_mask[ii][0])
         mask_map = np.transpose(mask_map,axes = (0,1,2))[np.newaxis]
         mask_map_ = np.expand_dims(mask_map,axis=0)
+        print('pid',pid)
+        print('mask_map',mask_map_.shape)
+        print('this_batch_seg_label',this_batch_seg_label.shape)
         this_batch_dice_mask = dice_val(torch.from_numpy(mask_map_),torch.from_numpy(this_batch_seg_label))
         mask_map = np.transpose(mask_map, axes=(3, 0, 1, 2))#128,1,64,128
         mask_map[mask_map>0.5] = 1

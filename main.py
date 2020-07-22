@@ -15,7 +15,6 @@
 # ==============================================================================
 
 """execution script."""
-
 import argparse
 import os
 import time
@@ -115,16 +114,16 @@ def train(logger):
             print('model',cf.exp_dir.split('/')[-2])
             logger.info('tr. batch {0}/{1} (ep. {2}) fw {3:.3f}s / bw {4:.3f}s / total {5:.3f}s || '
                         .format(bix + 1, cf.num_train_batches, epoch, tic_bw - tic_fw,
-                                time.time() - tic_bw, time.time() - tic_fw) + results_dict['logger_string'])
+                                time.time() - tic_bw, time.time() - tic_fw))
 
-            writer.add_scalar('Train/total_loss',results_dict['torch_loss'].item(),num_batch)
-            writer.add_scalar('Train/rpn_class_loss',results_dict['monitor_losses']['rpn_class_loss'],num_batch)
-            writer.add_scalar('Train/rpn_bbox_loss',results_dict['monitor_losses']['rpn_bbox_loss'],num_batch)
-            writer.add_scalar('Train/mrcnn_class_loss',results_dict['monitor_losses']['mrcnn_class_loss'],num_batch)
-            writer.add_scalar('Train/mrcnn_bbox_loss',results_dict['monitor_losses']['mrcnn_bbox_loss'],num_batch)
-            writer.add_scalar('Train/mrcnn_mask_loss',results_dict['monitor_losses']['mrcnn_mask_loss'],num_batch)
-            writer.add_scalar('Train/seg_dice_loss',results_dict['monitor_losses']['seg_loss_dice'],num_batch)
-            writer.add_scalar('Train/fusion_dice_loss',results_dict['monitor_losses']['fusion_loss_dice'],num_batch)
+            #writer.add_scalar('Train/total_loss',results_dict['torch_loss'].item(),num_batch)
+            #writer.add_scalar('Train/rpn_class_loss',results_dict['monitor_losses']['rpn_class_loss'],num_batch)
+            #writer.add_scalar('Train/rpn_bbox_loss',results_dict['monitor_losses']['rpn_bbox_loss'],num_batch)
+            #writer.add_scalar('Train/mrcnn_class_loss',results_dict['monitor_losses']['mrcnn_class_loss'],num_batch)
+            #writer.add_scalar('Train/mrcnn_bbox_loss',results_dict['monitor_losses']['mrcnn_bbox_loss'],num_batch)
+            #writer.add_scalar('Train/mrcnn_mask_loss',results_dict['monitor_losses']['mrcnn_mask_loss'],num_batch)
+            #writer.add_scalar('Train/seg_dice_loss',results_dict['monitor_losses']['seg_loss_dice'],num_batch)
+            #writer.add_scalar('Train/fusion_dice_loss',results_dict['monitor_losses']['fusion_loss_dice'],num_batch)
 
             train_results_list.append([results_dict['boxes'], batch['pid']])#just gt and det
             monitor_metrics['train']['monitor_values'][epoch].append(results_dict['monitor_losses'])
@@ -231,7 +230,6 @@ def test(logger):
     batch_gen = data_loader.get_test_generator(cf, logger)
 
     test_results_list,test_results_list_mask,test_results_list_seg ,test_results_list_fusion,testing_epoch= test_predictor.predict_test_set(batch_gen,cf, return_results=True)
-
     count = test_evaluator.evaluate_predictions(test_results_list,testing_epoch,cf,pth = cf.test_dir,flag = 'test')
     print('tp_patient {}, tp_roi {}, fp_roi {}'.format(count[0],count[1],count[2]))
     save_test_image(test_results_list,test_results_list_mask,test_results_list_seg,test_results_list_fusion,testing_epoch,cf,cf.plot_dir)
@@ -240,13 +238,13 @@ def test(logger):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str,  default='train',
+    parser.add_argument('--mode', type=str,  default='test',
                         help='one out of: train / test / train_test / analysis / create_exp')
     parser.add_argument('-f','--folds', nargs='+', type=int, default=[1],
                         help='None runs over all folds in CV. otherwise specify list of folds.')
-    parser.add_argument('--exp_dir', type=str, default='/data/yuezhou/fusion-in-prob/0713_mrcnn_seg_fusprob_opt_multidet/',
+    parser.add_argument('--exp_dir', type=str, default='/data/yuezhou/newdata/0720_mrcnn_seg_fusprob_opt_weight_newdata/',
                         help='path to experiment dir. will be created if non existent.')
-    parser.add_argument('--resume_to_checkpoint', type=str, default=None,
+    parser.add_argument('--resume_to_checkpoint', type=str, default='/data/yuezhou/newdata/0720_mrcnn_seg_fusprob_opt_weight_newdata/fold_1/',
                         help='if resuming to checkpoint, the desired fold still needs to be parsed via --folds.')
     parser.add_argument('--exp_source', type=str, default='experiments/abus_exp/',
                         help='specifies, from which source experiment to load configs and data_loader.')

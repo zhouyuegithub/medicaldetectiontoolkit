@@ -26,6 +26,87 @@ import importlib.util
 import pandas as pd
 import pickle
 
+def convert_seg_to_bounding_box_coordinates(data_dict, dim, get_rois_from_seg_flag=False, class_specific_seg_flag=False):
+
+    '''
+    This function generates bounding box annotations from given pixel-wise annotations.
+    :param data_dict: Input data dictionary as returned by the batch generator.
+    :param dim: Dimension in which the model operates (2 or 3).
+    :param get_rois_from_seg: Flag specifying one of the following scenarios:
+    1. A label map with individual ROIs identified by increasing label values, accompanied by a vector containing
+    in each position the class target for the lesion with the corresponding label (set flag to False)
+    2. A binary label map. There is only one foreground class and single lesions are not identified.
+    All lesions have the same class target (foreground). In this case the Dataloader runs a Connected Component
+    Labelling algorithm to create processable lesion - class target pairs on the fly (set flag to True).
+    :param class_specific_seg_flag: if True, returns the pixelwise-annotations in class specific manner,
+    e.g. a multi-class label map. If False, returns a binary annotation map (only foreground vs. background).
+    :return: data_dict: same as input, with additional keys:
+    - 'bb_target': bounding box coordinates (b, n_boxes, (y1, x1, y2, x2, (z1), (z2)))
+    - 'roi_labels': corresponding class labels for each box (b, n_boxes, class_label)
+    - 'roi_masks': corresponding binary segmentation mask for each lesion (box). Only used in Mask RCNN. (b, n_boxes, y, x, (z))
+    - 'seg': now label map (see class_specific_seg_flag)
+    '''
+
+    bb_target = []
+    roi_masks = []
+    roi_labels = []
+    out_seg = np.copy(data_dict['seg'])
+    for b in range(data_dict['seg'].shape[0]):
+
+        p_coords_list = []
+        p_roi_masks_list = []
+        p_roi_labels_list = []
+
+        if np.sum(data_dict['seg'][b]!=0) > 0:
+            if get_rois_from_seg_flag:
+                clusters, n_cands = lb(data_dict['seg'][b])
+                data_dict['class_target'][b] = [data_dict['class_target'][b]] * n_cands
+            else:
+                n_cands = int(np.max(data_dict['seg'][b]))
+                clusters = data_dict['seg'][b]
+
+            rois = np.array([(clusters == ii) * 1 for ii in range(1, n_cands + 1)])  # separate clusters and concat
+            for rix, r in enumerate(rois):
+                if np.sum(r !=0) > 0: #check if the lesion survived data augmentation
+                    seg_ixs = np.argwhere(r != 0)
+                    coord_list = [np.min(seg_ixs[:, 1])-1, np.min(seg_ixs[:, 2])-1, np.max(seg_ixs[:, 1])+1,
+                                     np.max(seg_ixs[:, 2])+1]
+                    if dim == 3:
+
+                        coord_list.extend([np.min(seg_ixs[:, 3])-1, np.max(seg_ixs[:, 3])+1])
+
+                    p_coords_list.append(coord_list)
+                    p_roi_masks_list.append(r)
+                    # add background class = 0. rix is a patient wide index of lesions. since 'class_target' is
+                    # also patient wide, this assignment is not dependent on patch occurrances.
+                    p_roi_labels_list.append(data_dict['class_target'][b][rix] + 1)
+
+                if class_specific_seg_flag:
+                    out_seg[b][data_dict['seg'][b] == rix + 1] = data_dict['class_target'][b][rix] + 1
+
+            if not class_specific_seg_flag:
+                out_seg[b][data_dict['seg'][b] > 0] = 1
+
+            bb_target.append(np.array(p_coords_list))
+            roi_masks.append(np.array(p_roi_masks_list).astype('uint8'))
+            roi_labels.append(np.array(p_roi_labels_list))
+
+
+        else:
+            bb_target.append([])
+            roi_masks.append(np.zeros_like(data_dict['seg'][b])[None])
+            roi_labels.append(np.array([-1]))
+
+    if get_rois_from_seg_flag:
+        data_dict.pop('class_target', None)
+
+    #data_dict['bb_target'] = np.array(bb_target)
+    #data_dict['roi_masks'] = np.array(roi_masks)
+    #data_dict['class_target'] = np.array(roi_labels)
+    #data_dict['seg'] = out_seg
+
+    return np.array(bb_target) 
+
 
 def learning_rate_decreasing(cf,epoch,lr_now,mode='step'):
     if mode == 'step':
@@ -74,7 +155,7 @@ def prep_exp(exp_path, is_training=True):
         # the first process of an experiment creates the directories and copies the config to exp_path.
         if not os.path.exists(exp_path):
             os.mkdir(exp_path)
-            os.mkdir(os.path.join(exp_path, 'plots'))
+            #os.mkdir(os.path.join(exp_path, 'plots'))
             #subprocess.call('cp {} {}'.format(os.path.join(dataset_path, 'configs.py'), os.path.join(exp_path, 'configs.py')), shell=True)
             #subprocess.call('cp {} {}'.format( 'configs.py', os.path.join(exp_path, 'configs.py')), shell=True)
             #subprocess.call('cp {} {}'.format('default_configs.py', os.path.join(exp_path, 'default_configs.py')), shell=True)
@@ -103,6 +184,7 @@ def prep_exp(exp_path, is_training=True):
         cf.exp_dir = exp_path
         cf.test_dir = os.path.join(cf.exp_dir, 'test/')
         cf.plot_dir = os.path.join(cf.exp_dir, 'plots/')
+
         if not os.path.exists(cf.test_dir):
             os.makedirs(cf.test_dir)
         if not os.path.exists(cf.plot_dir):
