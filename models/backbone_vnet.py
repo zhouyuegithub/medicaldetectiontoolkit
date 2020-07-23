@@ -147,6 +147,12 @@ class VNet(nn.Module):
         self.up_tr32 = UpTransition(64, 32, 1, elu)
         self.we_layer = WeightLayer(32,2+2,1,elu)
         self.out_tr = OutputTransition(self.cf, 32, elu)
+        
+        # deep supervision
+        self.out_256 = nn.Conv3d(256, 2, kernel_size=1)
+        self.out_128 = nn.Conv3d(128, 2, kernel_size=1)
+        self.out_64 = nn.Conv3d(64, 2, kernel_size=1)
+        self.out_32 = nn.Conv3d(32, 2, kernel_size=1)
 
     def forward(self, x):
         out16 = self.in_tr(x)
@@ -162,12 +168,27 @@ class VNet(nn.Module):
         outup32 = self.up_tr32(outup64, out16)
         we_layer = self.we_layer(outup32)
         outmap = self.out_tr(outup32)
+        
+        ds_256 = self.out_256(outup256)
+        ds_256 = F.upsample(ds_256, size=outmap[2:], mode='trilinear')
+        ds_128 = self.out_128(outup128)
+        ds_128 = F.upsample(ds_128, size=outmap[2:], mode='trilinear')
+        ds_64 = self.out_64(outup64)
+        ds_64 = F.upsample(ds_64, size=outmap[2:], mode='trilinear')
+        ds_32 = self.out_32(outup32)
+        ds_32 = F.upsample(ds_32, size=outmap[2:], mode='trilinear')
+
+
         output = []
         output.append(outmap)
-        output.append(outup32)
-        output.append(outup64)
-        output.append(outup128)
-        output.append(outup256)
+        output.append(ds_32)
+        output.append(ds_64)
+        output.append(ds_128)
+        output.append(ds_256)
+        #output.append(outup32)
+        #output.append(outup64)
+        #output.append(outup128)
+        #output.append(outup256)
         output.append(out256)
         #for o in output:
         #    print('features each level',o.shape)
